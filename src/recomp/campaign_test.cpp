@@ -1,6 +1,7 @@
 // Opt-in, read-only observation and virtual-controller bridge for campaign playtests.
 #include "recomp/campaign_test.h"
 #include <aurora/aurora.h>
+#include "recomp/coop.h"
 #include "recomp/frame.h"
 #include "recomp/skip.h"
 #include "recomp/hle.h"
@@ -108,6 +109,24 @@ void pad(PADStatus* pads) {
     pads[0].triggerRight = (u16(p) & PAD_TRIGGER_R) ? 255 : 0;
 }
 
+// The 2-player mode's player that view 0's record (lbl_803A3CA0 +0, what camera 0 follows) is
+// nearest to; -1 outside the 2-player mode.
+int viewPlayer() {
+    int best = -1;
+    float bestD = 1e30f;
+    for (int i = 0; i < 2; i++) {
+        const u32 p = coop::cachedPlayer(i);
+        if (!p) continue;
+        float d = 0;
+        for (int k = 0; k < 3; k++) {
+            const float e = rdf32(VA(0x803A3CA0) + 4 * k) - rdf32(p + 0x44 + 4 * k);
+            d += e * e;
+        }
+        if (d < bestD) bestD = d, best = i;
+    }
+    return best;
+}
+
 void snapshot() {
     if (dir().empty()) return;
     const u32 f = frame::guestFrames();
@@ -127,6 +146,7 @@ void snapshot() {
       << ",\"equipment\":" << (valid ? rd16(luigi + 0x792) : 0)
       << ",\"archive\":" << (valid ? (rd32(luigi + 0xB4) & 0xFF) : -1)
       << ",\"mode\":" << rd32(VA(0x804D80C4))
+      << ",\"views\":" << rd32(VA(0x804CFF90)) << ",\"view_player\":" << viewPlayer()
       << ",\"function_total\":" << (g_module ? g_module->funcCount : 0) << "}\n";
     std::ofstream(dir() / "status.json") << s.str();
     if (reporting) {

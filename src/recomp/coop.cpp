@@ -59,6 +59,15 @@ bool fixesWanted() {
 bool active() { return sActive; }
 bool fixes() { return sActive && sFixes; }
 
+// LM_COOP_LOCAL_VIEW=1|2 (test aid until the online session sets it): that player's view only.
+int localPlayer() {
+    static const int sEnv = [] {
+        const char* v = std::getenv("LM_COOP_LOCAL_VIEW");
+        return v && (*v == '1' || *v == '2') ? *v - '1' : -1;
+    }();
+    return fixes() ? sEnv : -1;
+}
+
 void onMapSetup(Ctx& c) {
     const bool on = wanted();
     if (on && rd32(kGamePad2) == 0) {

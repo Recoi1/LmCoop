@@ -227,6 +227,12 @@ HLE(fn_80011150) {
     if (sEventHold || rd32(kCurMapNo) == 10) {
         for (u32 o = 0; o < 0x10; o += 4) wr32(kViewPlayers + 0x28 + o, rd32(kViewPlayers + o));
     }
+    // Online: each PC shows its own player alone. The other record is made the local one's, so the
+    // layout sees the players together and view 0 (camera 0 follows record 0) is the local player's.
+    if (const int lp = localPlayer(); lp >= 0 && !sEventHold) {
+        const u32 from = kViewPlayers + 0x28 * lp, to = kViewPlayers + 0x28 * (1 - lp);
+        for (u32 o = 0; o < 0x10; o += 4) wr32(to + o, rd32(from + o));
+    }
     sInViewSetup = true;
     callOriginal(c, "fn_80011150");
     sInViewSetup = false;

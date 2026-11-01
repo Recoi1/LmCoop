@@ -9,6 +9,7 @@ bool wanted();        // setting (or LM_COOP) and US game code
 bool fixesWanted();   // co-op improvements setting (or LM_COOP_FIXES), needs wanted()
 bool active();        // 2-player mode latched for the current map
 bool fixes();         // co-op improvements latched for the current map
+int localPlayer();    // online view: the player shown alone, full screen (0/1); -1 for the local split
 
 void onMapSetup(Ctx& c);       // fn_8000C188 hook (dev_tools.cpp), before the original
 void onMapSetupFixes(Ctx& c);  // coop_fixes.cpp
