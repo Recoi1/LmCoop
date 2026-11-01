@@ -24,6 +24,7 @@
 #include "port/settings.h"
 #include "recomp/guest_util.h"
 #include "recomp/hle.h"
+#include "recomp/online.h"
 #include "recomp/runtime.h"
 #include "recomp/version.h"
 
@@ -48,24 +49,25 @@ bool sFixes = false;
 
 bool wanted() {
     static const bool sEnv = envFlag("LM_COOP");
-    return sEnv || port::settings().enhancements.twoPlayer;
+    return sEnv || port::settings().enhancements.twoPlayer || online::wanted();
 }
 
 bool fixesWanted() {
     static const bool sEnv = envFlag("LM_COOP_FIXES");
-    return wanted() && (sEnv || port::settings().enhancements.coopImprovements);
+    return wanted() && (sEnv || port::settings().enhancements.coopImprovements || online::wanted());
 }
 
 bool active() { return sActive; }
 bool fixes() { return sActive && sFixes; }
 
-// LM_COOP_LOCAL_VIEW=1|2 (test aid until the online session sets it): that player's view only.
+// Online: this PC's player (online.cpp); LM_COOP_LOCAL_VIEW=1|2 (test aid): that player's view only.
 int localPlayer() {
     static const int sEnv = [] {
         const char* v = std::getenv("LM_COOP_LOCAL_VIEW");
         return v && (*v == '1' || *v == '2') ? *v - '1' : -1;
     }();
-    return fixes() ? sEnv : -1;
+    if (!fixes()) return -1;
+    return online::localIndex() >= 0 ? online::localIndex() : sEnv;
 }
 
 void onMapSetup(Ctx& c) {

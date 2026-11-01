@@ -1,6 +1,7 @@
 // Co-op improvements on top of the unused 2-player mode (coop.cpp): F1 > Enhancements >
 // Unused content "Co-op improvements", off by default. Docs: docs/UNUSED_CONTENT.md.
 #include "recomp/coop.h"
+#include "recomp/online.h"
 #include "recomp/coop_test.h"
 
 #include "recomp/guest_util.h"
@@ -297,6 +298,7 @@ void holdP2(Ctx& c, u32 p1, u32 p2, bool on) {
 u32 cachedPlayer(int idx) { return idx >= 0 && idx < 2 && active() ? sCached[idx] : 0; }
 
 HLE(fn_800112F8) {
+    online::frame();
     if (sEventHoldReset) {
         sEventHoldReset = false;
         sEventHold = false;

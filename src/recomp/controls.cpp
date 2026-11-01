@@ -16,6 +16,7 @@
 #include "recomp/menu.h"
 #include "recomp/controls.h"
 #include "recomp/dsu.h"
+#include "recomp/online.h"
 #include "recomp/ui_scale.h"
 #include "recomp/mouse_aim.h"
 #include "recomp/version.h"
@@ -1484,6 +1485,10 @@ bool drawTab() {
         }
         if (ImGui::BeginTabItem("DSU", nullptr, subTabFlags("DSU"))) {
             local |= dsu::drawTab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Online", nullptr, subTabFlags("Online"))) {
+            local |= online::drawTab();
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
