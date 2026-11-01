@@ -17,6 +17,9 @@
 #include "recomp/controls.h"
 #include "recomp/dsu.h"
 #include "recomp/ui_scale.h"
+#include "recomp/mouse_aim.h"
+#include "recomp/version.h"
+#include <aurora/aurora.h>
 
 #include "port/settings.h"
 
@@ -398,6 +401,8 @@ struct Config {
     std::array<PortConfig, PAD_MAX_CONTROLLERS> ports;
     Profile keyboard = keyboardDefaults();
     std::map<std::string, Profile> pads;  // by SDL GUID
+    bool mouseAim = true;
+    float mouseSensitivity = 1.f;
     Config() { ports[0].keyboard = true; }
 };
 
@@ -405,6 +410,8 @@ std::recursive_mutex sMutex;  // menu (host thread) vs PADRead (guest thread)
 Config sCfg;
 u64 sGeneration = 1;   // bumped on every change; ports re-push when theirs is older
 bool sUnsaved = false; // changed outside drawTab (capture callback)
+MouseAim sMouse;
+bool sMouseGameplay = false, sMouseCamera = false, sMouseRelative = false, sMouseConfirm = false;
 
 // ---- Connected gamepads and port assignment ------------------------------------------
 
@@ -807,6 +814,8 @@ void loadProfileKey(Profile& p, const std::string& key, const std::string& value
 void loadKey(const std::string& section, const std::string& key, const std::string& value) {
     std::lock_guard lk(sMutex);
     if (section == "controls") {
+        if (key == "mouse_aim") sCfg.mouseAim = parseBool(value);
+        else if (key == "mouse_sensitivity") sCfg.mouseSensitivity = parseFloat(value, 0.1f, 4.f, 1.f);
         // port<N>_device / port<N>_device_name / port<N>_keyboard
         if (key.size() > 5 && key.rfind("port", 0) == 0 && key[4] >= '1' && key[4] <= '4' && key[5] == '_') {
             auto& pc = sCfg.ports[key[4] - '1'];
@@ -863,6 +872,8 @@ void saveProfile(std::ostream& out, const Profile& p) {
 void saveConfig(std::ostream& out) {
     std::lock_guard lk(sMutex);
     out << "[controls]\n";
+    out << "mouse_aim=" << (sCfg.mouseAim ? "true" : "false") << '\n'
+        << "mouse_sensitivity=" << sCfg.mouseSensitivity << '\n';
     for (int i = 0; i < PAD_MAX_CONTROLLERS; i++) {
         const auto& pc = sCfg.ports[i];
         out << "port" << i + 1 << "_device=" << pc.device << '\n';
@@ -975,6 +986,12 @@ std::string portDeviceLabel(const PortConfig& pc) {
 
 bool portsTab() {
     bool changed = false;
+    ImGui::SeparatorText("Keyboard and mouse");
+    changed |= recomp::menu::Checkbox("Mouse aiming", &sCfg.mouseAim);
+    changed |= recomp::menu::SliderFloat("Mouse sensitivity", &sCfg.mouseSensitivity, 0.1f, 4.f, "%.2fx");
+    ImGui::TextWrapped("WASD: move. Mouse: aim. Left click: vacuum / confirm menus. "
+                       "E: interact. Q: flashlight off. Right click: blow. Enter: pause. "
+                       "Esc: release mouse; click to capture again. F1: settings.");
     ImGui::TextWrapped("Choose what drives each GameCube controller port. Luigi's Mansion is played on port 1. "
                        "\"Auto\" takes the next connected controller that no other port has chosen.");
     if (ImGui::BeginTable("ports", 4, ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg)) {
@@ -1480,11 +1497,58 @@ bool handleEvent(const SDL_Event& ev) {
     if (ev.type != SDL_EVENT_KEY_DOWN && ev.type != SDL_EVENT_KEY_UP) return false;
     std::lock_guard lk(sMutex);
     if (sCap.active) return true;  // keys being captured never reach hotkeys
+    if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.scancode == SDL_SCANCODE_ESCAPE && !menu::isOpen()) {
+        sMouse.released = true;
+        sMouse.clear();
+        return true;
+    }
     if (sSwallowKey != SDL_SCANCODE_UNKNOWN && ev.key.scancode == sSwallowKey) {
         if (ev.type == SDL_EVENT_KEY_UP) sSwallowKey = SDL_SCANCODE_UNKNOWN;
         return true;
     }
     return false;
+}
+
+void updateHost() {
+    using namespace aurora::input;
+    static const LayerId layer = register_layer({
+        .label = "lm.keyboard-mouse",
+        .priority = kGameLayerPriority + 1,
+        .onEvent = [](const InputEvent& event, void*) {
+            std::lock_guard lk(sMutex);
+            if (event.payload.is<InputEvent::Cancelled>()) {
+                sMouse.clear();
+                sMouseConfirm = false;
+            }
+            const auto* pointer = event.payload.get_if<InputEvent::PointerChanged>();
+            if (!pointer || event.source.kind != InputSource::Kind::Mouse || menu::isOpen()) return EventResult::Pass;
+            if (pointer->phase == InputEvent::PointerChanged::Phase::Move && sMouseRelative)
+                sMouse.motion(pointer->delta.x, pointer->delta.y);
+            if (pointer->button == SDL_BUTTON_LEFT) {
+                const bool down = pointer->phase == InputEvent::PointerChanged::Phase::Down;
+                if (sMouse.released && sCfg.mouseAim && (sMouseGameplay || sMouseCamera)) {
+                    if (down) sMouse.released = false;
+                    return EventResult::Consume;
+                }
+                if (!sMouseGameplay || sMouseConfirm) {
+                    sMouseConfirm = down;
+                    return EventResult::Consume;
+                }
+            }
+            return EventResult::Pass;
+        },
+        .pointerMode = [](void*) {
+            std::lock_guard lk(sMutex);
+            return sMouseRelative ? PointerMode::Relative : PointerMode::Visible;
+        },
+    });
+    (void)layer;
+    std::lock_guard lk(sMutex);
+    SDL_Window* window = aurora_get_window();
+    const bool focused = window && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS);
+    if (!focused || menu::isOpen()) sMouseConfirm = false;
+    sMouseRelative = sMouse.capture(sMouseGameplay || sMouseCamera, focused, menu::isOpen(), sCfg.mouseAim && sPorts[0].keyboard);
+    if (!sMouseRelative) sMouse.clear();
 }
 
 void beforeRead() {
@@ -1501,6 +1565,21 @@ void beforeRead() {
 
 void afterRead(PADStatus* status) {
     std::lock_guard lk(sMutex);
+    // Mode 4 is the Game Boy Horror search camera: mouse aims, left click examines (A).
+    const u32 mode = g_mem ? rd32(VA(0x804D80C4)) : ~0u;
+    const bool interactive = g_mem && MouseAim::gameContext(rd32(VA(0x804D80A0)), mode,
+        rd32(VA(0x803D2D40) + 12) != 0, rd32(VA(0x803D2D40) + 0x1C), rd32(VA(0x804D8088)) != 0);
+    sMouseGameplay = interactive && mode == 0;
+    sMouseCamera = interactive && mode == 4;
+    if (sMouseConfirm && sPorts[0].keyboard) status[0].button |= PAD_BUTTON_A;
+    if (sMouseRelative && (sMouseGameplay || sMouseCamera) && status[0].err == PAD_ERR_NONE) {
+        const bool moved = sMouse.x != 0 || sMouse.y != 0;
+        const auto aim = sMouse.take(sCfg.mouseSensitivity);
+        if (moved) {
+            status[0].substickX = s8(aim[0]);
+            status[0].substickY = s8(aim[1]);
+        }
+    } else sMouse.clear();
     for (int port = 0; port < PAD_MAX_CONTROLLERS; port++) {
         auto& st = sPorts[port];
         PADStatus& s = status[port];

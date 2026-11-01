@@ -483,7 +483,11 @@ void installCrashHandler() {
     });
 #ifdef _WIN32
     SetUnhandledExceptionFilter(onException);
+#if !LM_ASAN
+    // ASan commits its shadow on demand through access violations and reports real faults itself;
+    // this first-chance handler would take those shadow faults for crashes and the process dies.
     AddVectoredExceptionHandler(1, onVectored);
+#endif
     // Route CRT abort() through SIGABRT instead of an immediate fast-fail.
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 #else

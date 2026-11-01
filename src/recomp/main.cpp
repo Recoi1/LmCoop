@@ -18,6 +18,8 @@
 #include "port/settings.h"
 #include "port/update.h"
 #include "recomp/audio.h"
+#include "recomp/campaign_test.h"
+#include "recomp/controls.h"
 #include "recomp/cpu_qos.h"
 #include "recomp/mem_report.h"
 #include "recomp/frame.h"
@@ -191,6 +193,15 @@ int main(int argc, char* argv[]) {
     // Windows: no console window for players; output to a terminal, a redirect or last_run.log.
     port::recovery::setupConsole(argc, argv);
     port::installCrashHandler();
+#if LM_ASAN
+    // LM_TEST_ASAN_PROBE=1 (crash tests): a deliberate heap overflow proving sanitizer reports reach the runner.
+    if (std::getenv("LM_TEST_ASAN_PROBE")) {
+        volatile int index = 16;
+        char* volatile probe = new char[16];  // volatile: clang may elide a visible new/delete pair
+        probe[index] = 1;
+        delete[] probe;
+    }
+#endif
     port::setHangDetail(&hangDetail);
     port::startHangWatchdog();
     port::parseOptions(argc, argv);
@@ -421,6 +432,10 @@ int main(int argc, char* argv[]) {
         return v ? std::atof(v) : 0.0;
     }();
     const auto runStart = std::chrono::steady_clock::now();
+    const u32 quitFrame = [] {
+        const char* v = std::getenv("LM_QUIT_FRAME");
+        return v ? u32(std::strtoul(v, nullptr, 10)) : 0u;
+    }();
     port::setPhase("game loop");
     // Stalls the watchdog cannot see because this loop keeps running (port::reportStall): no frame
     // presented (aurora_begin_frame failing), or with interpolation the game thread no longer
@@ -432,6 +447,10 @@ int main(int argc, char* argv[]) {
     u32 lastGuestFrames = frame::guestFrames();
     bool presentStallReported = false, guestStallReported = false;
     while (!exiting) {
+        if (quitFrame && frame::guestFrames() >= quitFrame) {
+            log("[test] reached guest frame budget %u", quitFrame);
+            break;
+        }
         port::heartbeat();
         sStallOpen.store(false, std::memory_order_relaxed);
         if (!paused) port::setPhase("game loop: window events (aurora_update)");  // (paused: nullptr, a wait on purpose)
@@ -450,6 +469,7 @@ int main(int argc, char* argv[]) {
                 audio::outSetPaused(false);
             }
         }
+        controls::updateHost();
         // Shaders first (precache.h holdGame): at startup the game does not start, and after a
         // settings change that needs other shader variants it waits, until they are compiled.
         const bool hold = !exiting && precache::holdGame();
@@ -466,8 +486,11 @@ int main(int argc, char* argv[]) {
             const char* v = std::getenv("LM_FREEZE_AT");
             return v ? u32(std::strtoul(v, nullptr, 10)) : 0u;
         }();
-        const bool frozen = sFreezeAt && copyDispCount() >= sFreezeAt;
+        const bool campaignHold = campaign::hold();
+        const bool frozen = (sFreezeAt && copyDispCount() >= sFreezeAt) || campaignHold;
         frame::setHostPaused(paused || hold || frozen);
+        if (std::getenv("LM_CAMPAIGN_DIR")) audio::outSetPaused(paused || hold || frozen);
+        if (campaignHold) std::this_thread::sleep_for(std::chrono::milliseconds(10));
         {
             const auto now = SteadyClock::now();
             // (A gap between iterations is a stall of this thread itself, which the watchdog reports.)
@@ -547,6 +570,7 @@ int main(int argc, char* argv[]) {
     menu::shutdown();
     vi::stopTimer();
     frame::stop();
+    flushTestCoverage();
     audio::outShutdown();
     aurora_shutdown();
     port::recovery::onExit();

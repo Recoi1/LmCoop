@@ -13,6 +13,7 @@
 #include "recomp/ctx.h"
 
 #include <functional>
+#include <vector>
 
 namespace recomp::sched {
 
@@ -74,6 +75,7 @@ void startHostThread(std::function<void()> fn);
 // at most `seconds`; false on timeout.
 bool waitForThreads(double seconds);
 void dumpThreads();
+std::vector<u32> registerWords(const Ctx& extra);  // conservative roots for host GX objects
 void serviceOnThread(Ctx& c);
 
 }  // namespace recomp::sched

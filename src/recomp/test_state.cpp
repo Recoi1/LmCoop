@@ -108,7 +108,8 @@ void testStateFrame(Ctx& c) {
             const s32 hp = s16(rd16(l + 0xFC));
             log("[test] LM_TEST_HIT: frame %u, Luigi health %d -> %d", f, hp, hp - s32(sHitDamage));
             static const u32 sSetHealth = guestSymbol("fn_800B9488");
-            guestCall(c, sSetHealth, l, u32(std::max(1, hp - s32(sHitDamage))) & 0xFFFF);
+            const s32 floor = std::getenv("LM_TEST_LETHAL") ? 0 : 1;
+            guestCall(c, sSetHealth, l, u32(std::max(floor, hp - s32(sHitDamage))) & 0xFFFF);
             sHitAt = sHitPeriod ? f + sHitPeriod : ~0u;
         }
     }

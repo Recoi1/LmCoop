@@ -15,6 +15,7 @@ void selectSubTab(const char* name);  // "Ports", "Bindings", "Analog" or "DSU":
 // Host event loop, before the menu's own hotkeys. True: the event belongs to a "press a
 // button to bind" capture and must not reach F1/Esc or other hotkeys.
 bool handleEvent(const SDL_Event& ev);
+void updateHost();  // cursor ownership, on the SDL thread
 
 // hle_pad.cpp, around Aurora's PADRead: beforeRead assigns devices to ports (hot-plug)
 // and pushes changed bindings to Aurora; afterRead applies dead zones / sensitivity and

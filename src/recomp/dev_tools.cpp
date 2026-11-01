@@ -20,6 +20,7 @@
 #include <SDL3/SDL.h>
 
 #include <array>
+#include "recomp/campaign_test.h"
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -399,6 +400,7 @@ HLE(LMChangeFrameBuffer__Fv) {
     unused2::onFrame(c);
     sillyworld::onFrame(c);
     viewer::guestFrame(c);
+    campaign::snapshot();
     callOriginal(c, "LMChangeFrameBuffer__Fv");
 }
 

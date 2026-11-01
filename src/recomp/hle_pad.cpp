@@ -7,6 +7,7 @@
 #include "recomp/controls.h"
 #include "recomp/coop.h"
 #include "recomp/coop_test.h"
+#include "recomp/campaign_test.h"
 #include "recomp/menu.h"
 #include "recomp/skip.h"
 #include "recomp/unused2.h"
@@ -175,6 +176,13 @@ HLE(PADRead) {
     controls::beforeRead();  // port devices (hot-plug) and bindings from F1 > Controls
     const u32 motor = PADRead(st);
     controls::afterRead(st);  // dead zones, sensitivity; input test values
+    static const bool testInputOnly = std::getenv("LM_TEST_INPUT_ONLY") != nullptr;
+    if (testInputOnly) {
+        for (int i = 0; i < PAD_MAX_CONTROLLERS; ++i) {
+            st[i] = {};
+            st[i].err = i ? PAD_ERR_NO_CONTROLLER : PAD_ERR_NONE;
+        }
+    }
     logPad(st);
     if (menu::isOpen()) {  // the overlay menu owns input while open
         for (auto& s : st) {
@@ -210,6 +218,7 @@ HLE(PADRead) {
         st[0].stickX = st[0].stickY = st[0].substickX = st[0].substickY = 0;
         st[0].triggerLeft = st[0].triggerRight = st[0].analogA = st[0].analogB = 0;
     }
+    campaign::pad(st);
     sLastButtons = st[0].err == PAD_ERR_NONE ? st[0].button : 0;
     for (int i = 0; i < PAD_MAX_CONTROLLERS; i++) {
         const u32 p = c.r[3] + 12 * i;

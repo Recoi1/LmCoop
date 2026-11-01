@@ -16,6 +16,7 @@ void initTimeBase();
 // "patch <id> <address> <instruction word> [us] [pal]" (id < kMaxPatches).
 void setPatch(u32 id, bool on);
 void initTrace();
+void flushTestCoverage();
 void initWatch();
 void watchRange(u32 addr, u32 len, const char* what);  // HLE bulk writes
 void verifyLowMemory();  // hle_os.cpp: boot values in low memory intact (restored and logged if not)

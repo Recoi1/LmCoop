@@ -8,6 +8,8 @@
 #include <dolphin/gx.h>
 
 #include <algorithm>
+#include <atomic>
+#include <memory>
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
@@ -91,9 +93,25 @@ constexpr int kRingSize = 64;
 thread_local u32 tRing[kRingSize];
 thread_local u32 tRingLr[kRingSize];
 thread_local unsigned tRingPos = 0;
+std::unique_ptr<std::atomic<u8>[]> sTestCovered;
+std::FILE* sTestCoverage = nullptr;
+bool sTestSeedOn = false;
+u32 sTestSeed = 0;
 }  // namespace
 
 void initTrace() {
+    if (const char* path = std::getenv("LM_TEST_COVERAGE")) {
+        sTestCoverage = std::fopen(path, "w");
+        if (!sTestCoverage) fatal("Cannot create test coverage file: %s", path);
+        sTestCovered = std::make_unique<std::atomic<u8>[]>(kMem1Size / 4);
+        std::atexit(flushTestCoverage);
+        g_traceOn = true;
+    }
+    if (const char* seed = std::getenv("LM_TEST_SEED")) {
+        sTestSeedOn = true;
+        sTestSeed = u32(std::strtoul(seed, nullptr, 0));
+        g_traceOn = true;
+    }
     const char* env = std::getenv("LM_TRACE");
     if (!env || !*env) return;
     const std::string v = env;
@@ -112,7 +130,21 @@ void initTrace() {
     g_traceOn = true;
 }
 
+void flushTestCoverage() {
+    if (sTestCoverage) std::fflush(sTestCoverage);
+}
+
 void trace_enter(u32 addr, Ctx& c) {
+    if (sTestCovered && addr >= 0x80000000u && addr < 0x81800000u) {
+        const u32 index = (addr - 0x80000000u) / 4;
+        if (!sTestCovered[index].load(std::memory_order_relaxed) &&
+            !sTestCovered[index].exchange(1, std::memory_order_relaxed))
+            std::fprintf(sTestCoverage, "%08X\n", addr);
+    }
+    if (sTestSeedOn) {
+        static const u32 seedFunction = guestSymbol("srand");
+        if (addr == seedFunction) c.r[3] = sTestSeed;
+    }
     c.lastFn = addr;
     c.ring[c.ringPos++ & 31] = addr;
     tRing[tRingPos % kRingSize] = addr;

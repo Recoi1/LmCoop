@@ -455,6 +455,23 @@ void postIrq(std::function<void(Ctx&)> fn) {
     handOff(pick(nullptr));
 }
 
+std::vector<u32> registerWords(const Ctx& extra) {
+    std::lock_guard lk(sM);
+    std::vector<u32> words;
+    const auto add = [&](const Ctx& c) {
+        words.insert(words.end(), std::begin(c.r), std::end(c.r));
+        for (double f : c.f) {
+            const u64 bits = bits64(f);
+            words.push_back(u32(bits));
+            words.push_back(u32(bits >> 32));
+        }
+    };
+    for (const auto* t : sThreads) add(t->ctx);
+    add(sIrqCtx);
+    add(extra);
+    return words;
+}
+
 void dumpThreads() {
     std::lock_guard lk(sM);
     log("[sched] running=%08X irqPending=%d", sRunning == &sIrqMarker ? 0xFFFFFFFF : sRunning ? sRunning->guest : 0,

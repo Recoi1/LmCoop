@@ -73,7 +73,7 @@ const bool sForceFast = envFlag("LM_FF");  // testing: fast-forward all the time
 // LM_FF_FROM=<guest frame> (testing, with LM_FF): fast-forward only from that frame on (past the
 // title screen and menus, which do not take scripted input at fast-forward speed).
 const unsigned sForceFastFrom = std::getenv("LM_FF_FROM") ? unsigned(std::atoi(std::getenv("LM_FF_FROM"))) : 0;
-bool sTestFast = false;  // setTestFastForward
+std::atomic<bool> sTestFast{false};  // setTestFastForward can be driven by the test host
 const int sAutoFrames = [] {
     const char* v = std::getenv("LM_SKIP_AUTO");
     return v ? std::atoi(v) : 0;
