@@ -1701,12 +1701,13 @@ void afterRead(PADStatus* status) {
     sMouseGameplay = interactive && mode == 0;
     sMouseCamera = interactive && mode == 4;
     if (sMouseConfirm && sPorts[0].keyboard) status[0].button |= PAD_BUTTON_A;
-    // Walking around, horizontal mouse motion turns Luigi through mouse_look's steering (1:1, no
-    // dead zone or snap-back); vertical motion and the GBH search camera keep the stick mapping.
-    float turnPixels = 0;
+    // Walking around, mouse motion turns Luigi and tilts his aim directly through mouse_look (1:1,
+    // no easing); the GBH search camera keeps the stick mapping.
+    float turnPixels = 0, pitchPixels = 0;
     if (sMouseRelative && sMouseGameplay && status[0].err == PAD_ERR_NONE) {
         turnPixels = sMouse.x * sCfg.mouseSensitivity;
-        sMouse.x = 0;
+        pitchPixels = sMouse.y * sCfg.mouseSensitivity;
+        sMouse.x = sMouse.y = 0;
     }
     if (sMouseRelative && (sMouseGameplay || sMouseCamera) && status[0].err == PAD_ERR_NONE) {
         const bool moved = sMouse.x != 0 || sMouse.y != 0;
@@ -1717,6 +1718,7 @@ void afterRead(PADStatus* status) {
         }
     } else sMouse.clear();
     if (turnPixels != 0) mouselook::addPixels(turnPixels);
+    if (pitchPixels != 0) mouselook::addPitchPixels(pitchPixels);
     for (int port = 0; port < PAD_MAX_CONTROLLERS; port++) {
         auto& st = sPorts[port];
         PADStatus& s = status[port];

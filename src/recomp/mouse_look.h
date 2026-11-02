@@ -29,6 +29,16 @@ inline void facing(std::uint16_t yaw, float& fx, float& fz) {
     fx = std::sin(a), fz = std::cos(a);
 }
 
+// The aim pitch in degrees after `up` pixels of upward mouse motion. The game keeps it between 0
+// (level) and 29.4 (measured, with the C-stick: up = 29.4, down = 0, resting about 11), and the stick
+// is the other way round from a mouse, so mouse up lowers it.
+constexpr float kMaxPitch = 29.4f;
+inline float pitched(float pitch, float up, float sensitivity = 1.0f) {
+    return std::clamp(pitch - up * sensitivity * kDegreesPerPixel, 0.0f, kMaxPitch);
+}
+
+// controls.cpp: vertical mouse motion while walking around (up positive, scaled by the sensitivity).
+void addPitchPixels(float up);
 // controls.cpp: horizontal mouse motion while walking around (already scaled by the sensitivity).
 void addPixels(float pixels);
 // Before the game's per-frame update of player `self` (fn_800B783C hook): turns the player this PC

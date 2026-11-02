@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(lmport LANGUAGES C CXX VERSION 1.1.11)
+project(lmport LANGUAGES C CXX VERSION 1.1.12)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
@@ -185,7 +185,7 @@ set(LM_EMBEDDED_FILES
     kSymbolsPal=decomp/config/GLMP01_00/symbols.txt kVersionMapPal=tools/recomp/GLMP01_map.txt
     kHooks=tools/recomp/hooks.txt kCtxHeader=src/recomp/ctx.h kModuleAbiHeader=src/recomp/module_abi.h
     kModuleRt=src/recomp/module_rt.cpp kRecompilerSource=src/recompiler/recompiler.cpp
-    kLogo=assets/lm_coop_logo.png)
+    kLogo=assets/lm_coop_logo.png kJoinLoading=assets/join-loading.png)
 set(_embed_deps)
 foreach (_e ${LM_EMBEDDED_FILES})
     string(REGEX REPLACE "^[^=]*=" "${CMAKE_SOURCE_DIR}/" _f ${_e})
