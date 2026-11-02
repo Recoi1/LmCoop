@@ -10,6 +10,7 @@
 #include "recomp/campaign_test.h"
 #include "recomp/menu.h"
 #include "recomp/menu_mouse.h"
+#include "recomp/mouse_look.h"
 #include "recomp/online.h"
 #include "recomp/skip.h"
 #include "recomp/unused2.h"
@@ -206,6 +207,7 @@ HLE(PADRead) {
     }
     skip::filterPad(st, PAD_MAX_CONTROLLERS);
     menumouse::pad(st);  // the mouse in the game's menus (point and click)
+    mouselook::pad(st);  // mouse turning while walking around (mouse_look.h)
     online::pad(st);  // online co-op: local pad to the local player, the other PC's to the other
     // 2-player co-op improvements: player 2's Game Boy Horror buttons do nothing, and player 2
     // has no input while an event has set them aside (coop_fixes.cpp).
