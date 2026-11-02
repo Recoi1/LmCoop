@@ -396,26 +396,15 @@ bool run(const Options& opts, LaunchInfo& launch) {
                 return false;
             }
         } else if (screen == Screen::Multiplayer) {
-            const float w = ImGui::GetWindowWidth() * 0.5f;
-            ImGui::SetCursorPosX((ImGui::GetWindowWidth() - w) * 0.5f);
-            ImGui::BeginGroup();
-            ImGui::PushItemWidth(w * 0.5f);
-            centeredText("Host: choose your save and play as Luigi. Join: wait on the loading screen, then enter the host's game as Mario.", grey);
-            ImGui::Dummy(ImVec2(0, 6 * scale));
-            recomp::online::drawHostJoin(false);
-            ImGui::PopItemWidth();
-            ImGui::EndGroup();
-            ImGui::Dummy(ImVec2(0, 12 * scale));
-            const ImVec2 half(ImGui::GetWindowWidth() * 0.14f, 40 * scale);
-            ImGui::SetCursorPosX(ImGui::GetWindowWidth() * 0.5f - half.x - 6 * scale);
-            ImGui::BeginDisabled(!recomp::online::readyToStart());
-            if (ImGui::Button("Start", half)) {
-                port::saveSettings();  // the host/join choice and address are remembered
+            using recomp::online::MenuResult;
+            switch (recomp::online::drawMultiplayerMenu(scale)) {
+            case MenuResult::Start:
+                port::saveSettings();  // the choice, address, lobby and server are remembered
                 choose(recomp::online::configuredMode());
+                break;
+            case MenuResult::Back: screen = Screen::Start; break;
+            case MenuResult::Stay: break;
             }
-            ImGui::EndDisabled();
-            ImGui::SameLine(0, 12 * scale);
-            if (ImGui::Button("Back", half)) screen = Screen::Start;
         } else if (panel) {
             ImGui::Dummy(ImVec2(0, 12 * scale));
             centeredText(screen == Screen::Settings ? "Settings" : "Updates");

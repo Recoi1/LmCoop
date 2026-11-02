@@ -584,7 +584,23 @@ void setSessionMode(int mode) {
 
 bool readyToStart() {
     std::lock_guard lk(sCfgM);
-    return sCfg.mode != Mode::Off && !sCfg.address.empty() && sCfg.port > 0 && sCfg.port <= 65535;
+    if (sCfg.mode == Mode::Off) return false;
+    if (sCfg.internet)
+        return !sCfg.signalUrl.empty() && (sCfg.mode == Mode::Host || !sCfg.inviteCode.empty() || !sCfg.lobbyId.empty());
+    return !sCfg.address.empty() && sCfg.port > 0 && sCfg.port <= 65535;
+}
+
+Config savedConfig() {
+    std::lock_guard lk(sCfgM);
+    return sCfg;
+}
+void setSavedConfig(const Config& c) {
+    std::lock_guard lk(sCfgM);
+    sCfg = c;
+}
+std::string inviteCode() {
+    std::lock_guard lk(sStatusM);
+    return sInvite;
 }
 
 int configuredMode() {
@@ -637,15 +653,40 @@ bool drawHostJoin(bool withOff) {
     return changed;
 }
 
+// The lobby while a session is configured: invite code, who is in, host, leave.
+void drawLobbyPanel() {
+    const Config c = config();
+    if (c.mode == Mode::Off) return;
+    ImGui::SeparatorText(c.internet ? "Online lobby" : "Direct connection");
+    if (c.internet && c.mode == Mode::Host) {
+        const std::string code = inviteCode();
+        if (code.empty()) ImGui::TextDisabled("Invite code: (registering with the matchmaking server...)");
+        else {
+            ImGui::Text("Invite code: %s", code.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy")) ImGui::SetClipboardText(code.c_str());
+            ImGui::TextDisabled("Your friend picks Join by Code and types it. %s lobby.", c.publicLobby ? "Public" : "Private");
+        }
+    }
+    ImGui::Text("Host: %s", c.mode == Mode::Host ? (c.name + " (you)").c_str() : remoteName()[0] ? remoteName() : "(connecting)");
+    ImGui::Text("Players (%d/2):", connected() ? 2 : 1);
+    ImGui::BulletText("%s (you, %s)", c.name.c_str(), c.mode == Mode::Host ? "Luigi" : "Mario");
+    if (connected()) ImGui::BulletText("%s (%s)", remoteName()[0] ? remoteName() : "partner", c.mode == Mode::Host ? "Mario" : "Luigi");
+    if (menu::Button("Leave lobby")) port::relaunch();  // back to the start menu
+}
+
 bool drawTab() {
     ImGui::TextWrapped("Play the 2-player mode with a friend on another PC: you are Luigi when you host, Mario "
-                       "when you join. Both PCs need their own copy of the USA game. Over the internet, put both "
-                       "PCs in one Radmin VPN network and use the host's Radmin address (26.x.x.x). The host "
+                       "when you join. Both PCs need their own copy of the USA game. Pick Multiplayer > Host Online "
+                       "or Join by Code on the start menu to play over the internet without a VPN, or use the "
+                       "address fields below (Direct Connect) on a LAN or a Radmin VPN. The host "
                        "chooses a save. Joining loads that game directly; your own saves stay read-only. "
                        "Both PCs need the same current build. Hosting enables two players at the next map load.");
     ImGui::Spacing();
-    const bool changed = drawHostJoin(true);
+    bool changed = false;
+    if (!savedConfig().internet) changed = drawHostJoin(true);
     ImGui::Text("Status: %s", status());
+    drawLobbyPanel();
     return changed;
 }
 

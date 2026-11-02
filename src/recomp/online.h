@@ -36,11 +36,17 @@ void noteSpawnEntry(u32 tool, int entry);
 void spawnValue(u32 tool, int entry, const char* field, u32 out);
 const char* status();  // "off", "waiting", "connected", "rejected: <why>", "disconnected"
 
+// The start menu's multiplayer screens (online_ui.cpp). Stay while the user is choosing; Start when
+// the saved settings describe the session to begin; Back to leave to the start menu.
+enum class MenuResult { Stay, Start, Back };
+MenuResult drawMultiplayerMenu(float scale);
+
 bool drawTab();        // Controls tab, "Online" sub-tab. True when a setting changed.
 // Host/Join, address, port and password (the Online tab and the LmCoop start menu). True when changed.
 bool drawHostJoin(bool withOff);
 bool readyToStart();   // Host or Join chosen and an address entered
 int configuredMode();  // the saved mode: 0 off, 1 host, 2 join
+std::string inviteCode();  // internet host: the code to share ("" until the lobby is registered)
 // The LmCoop start menu's choice for this session (-1 = the saved settings, 0 off, 1 host, 2 join).
 void setSessionMode(int mode);
 
