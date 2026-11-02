@@ -2,9 +2,17 @@
 
 Controller configuration lives in the F1 menu's **Controls** tab
 (`src/recomp/controls.cpp`, hooked into `menu.cpp` and `hle_pad.cpp`). Everything applies
-live and is saved in `settings.ini` when the menu closes.
+live and is saved in `settings.ini` when the menu closes. The same controls are available
+before gameplay from the start screen's **Settings** menu, where changes are saved immediately.
 
 ## Sub-tabs
+
+**Controller**: the default visual layout. Select Player 1-4, its input device and a binding
+profile across the top. The GameCube controller diagram is surrounded by bindings for both
+sticks, the D-pad, face buttons and digital/analog triggers. Switch between primary and
+alternate bindings, click to remap, or right-click to clear. Existing conflict warnings,
+capture countdowns and per-device profiles are preserved. **Calibration** opens the stick,
+trigger and rumble options described below; the full **Bindings** list remains available.
 
 **Ports**: what drives each GameCube port (Luigi's Mansion only reads port 1).
 

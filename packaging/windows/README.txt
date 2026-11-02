@@ -1,4 +1,4 @@
-LmCoop 1.1.8 - Windows x64
+LmCoop 1.1.9 - Windows x64
 =========================
 
 Download/source: https://github.com/Recoi1/LmCoop
@@ -28,6 +28,9 @@ mode remains unfinished.
 
 CONTROLS
 F1 opens settings and configurable keyboard/mouse/controller bindings.
+Controls opens a visual GameCube controller page: select a player and input device,
+then click the binding beside a button or stick direction to remap it. Alternate
+bindings, the full binding list, calibration and rumble remain available.
 Enter is Start. Mouse selection works on the file selection screen.
 
 DATA AND TROUBLESHOOTING

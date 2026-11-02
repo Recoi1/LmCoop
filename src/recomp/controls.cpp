@@ -15,6 +15,7 @@
 // [controls.pad.<guid>]) through port::addSettingsExtension.
 #include "recomp/menu.h"
 #include "recomp/controls.h"
+#include "recomp/controller_diagram.h"
 #include "recomp/dsu.h"
 #include "recomp/online.h"
 #include "recomp/ui_scale.h"
@@ -38,6 +39,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <initializer_list>
 #include <map>
 #include <mutex>
 #include <ostream>
@@ -1117,7 +1119,7 @@ bool portsTab() {
 
 // Profile picker shared by the Bindings and Analog tabs: the keyboard, connected gamepad
 // models, and saved profiles of models that are not connected.
-void profilePicker(bool padsOnly) {
+void profilePicker(bool padsOnly, int preferredPort = 0) {
     std::vector<std::pair<std::string, std::string>> items;  // key, label
     if (!padsOnly) items.emplace_back("keyboard", "Keyboard and mouse");
     for (const auto& p : sPads) {
@@ -1134,7 +1136,7 @@ void profilePicker(bool padsOnly) {
     }
     // Until one is picked, show port 1's controller (or the first in the list).
     if (!sProfilePicked || std::none_of(items.begin(), items.end(), [&](const auto& i) { return i.first == sSelProfile; }))
-        sSelProfile = sPorts[0].pad.id ? sPorts[0].pad.guid : items[0].first;
+        sSelProfile = sPorts[preferredPort].pad.id ? sPorts[preferredPort].pad.guid : items[0].first;
     std::string current;
     for (const auto& [k, label] : items)
         if (k == sSelProfile) current = label;
@@ -1177,6 +1179,42 @@ bool conflicts(const Profile& p, int t, int slot, std::string& with) {
     return false;
 }
 
+bool bindingButton(Profile& prof, int t, int slot, ImVec2 size) {
+    bool changed = false;
+    const float secondsLeft = kCaptureSeconds - std::chrono::duration<float>(Clock::now() - sCap.start).count();
+    ImGui::PushID(t * 2 + slot);
+    const bool capturing =
+        sCap.active && sCap.profile == sSelProfile && sCap.target == t && sCap.slot == slot;
+    std::string with;
+    const bool conflict = !capturing && conflicts(prof, t, slot, with);
+    std::string label;
+    if (capturing) {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "Press %s... %.0f", prof.keyboard ? "a key" : "a button",
+                      std::max(secondsLeft, 0.0f));
+        label = buf;
+    } else {
+        label = prof.bind[t][slot] ? inputName(prof.bind[t][slot], prof.type) : "-";
+    }
+    if (conflict) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.35f, 1));
+    if (capturing) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+    if (ImGui::Button(label.c_str(), size) && !sCap.active) beginCapture(sSelProfile, t, slot);
+    if (capturing) ImGui::PopStyleColor();
+    if (conflict) {
+        ImGui::PopStyleColor();
+        ImGui::SetItemTooltip("Also bound to %s", with.c_str());
+    } else if (!capturing) {
+        ImGui::SetItemTooltip("%s %s: %s\nClick to remap. Right-click to clear.",
+                              kTargetInfo[t].group, kTargetInfo[t].label, label.c_str());
+    }
+    if (!sCap.active && ImGui::IsItemClicked(ImGuiMouseButton_Right) && prof.bind[t][slot]) {
+        prof.bind[t][slot] = {};
+        changed = true;
+    }
+    ImGui::PopID();
+    return changed;
+}
+
 bool bindingsTab() {
     bool changed = false;
     profilePicker(false);
@@ -1184,8 +1222,6 @@ bool bindingsTab() {
     if (!prof) return false;
     ImGui::TextDisabled("Click a slot, then press a %s. Esc cancels, right-click clears.",
                         prof->keyboard ? "key or mouse button" : "button or move a stick/trigger");
-    const float secondsLeft =
-        kCaptureSeconds - std::chrono::duration<float>(Clock::now() - sCap.start).count();
     if (ImGui::BeginChild("bindings", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() - 4))) {
         if (ImGui::BeginTable("bind", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
             ImGui::TableSetupColumn("GameCube", ImGuiTableColumnFlags_WidthFixed, 150 * recomp::ui::scale());
@@ -1206,33 +1242,7 @@ bool bindingsTab() {
                 ImGui::Text("  %s", kTargetInfo[t].label);
                 for (int slot = 0; slot < 2; slot++) {
                     ImGui::TableNextColumn();
-                    ImGui::PushID(t * 2 + slot);
-                    const bool capturing =
-                        sCap.active && sCap.profile == sSelProfile && sCap.target == t && sCap.slot == slot;
-                    std::string with;
-                    const bool conflict = !capturing && conflicts(*prof, t, slot, with);
-                    std::string label;
-                    if (capturing) {
-                        char buf[64];
-                        std::snprintf(buf, sizeof(buf), "Press %s... %.0f", prof->keyboard ? "a key" : "a button",
-                                      std::max(secondsLeft, 0.0f));
-                        label = buf;
-                    } else {
-                        label = prof->bind[t][slot] ? inputName(prof->bind[t][slot], prof->type) : "-";
-                    }
-                    if (conflict) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.35f, 1));
-                    if (capturing) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                    if (ImGui::Button(label.c_str(), ImVec2(-1, 0)) && !sCap.active) beginCapture(sSelProfile, t, slot);
-                    if (capturing) ImGui::PopStyleColor();
-                    if (conflict) {
-                        ImGui::PopStyleColor();
-                        ImGui::SetItemTooltip("Also bound to %s", with.c_str());
-                    }
-                    if (!sCap.active && ImGui::IsItemClicked(ImGuiMouseButton_Right) && prof->bind[t][slot]) {
-                        prof->bind[t][slot] = {};
-                        changed = true;
-                    }
-                    ImGui::PopID();
+                    changed |= bindingButton(*prof, t, slot, ImVec2(-1, 0));
                 }
             }
             ImGui::EndTable();
@@ -1250,6 +1260,115 @@ bool bindingsTab() {
         changed = true;
     }
     ImGui::SetItemTooltip("Removes every binding of this profile (then bind each input yourself).");
+    return changed;
+}
+
+bool controllerTab() {
+    bool changed = false;
+    const float scale = recomp::ui::scale();
+    if (ImGui::BeginTabBar("players")) {
+        for (int i = 0; i < PAD_MAX_CONTROLLERS; i++) {
+            const std::string label = "Player " + std::to_string(i + 1);
+            if (ImGui::BeginTabItem(label.c_str())) {
+                if (sTestPort != i) sTestPort = i, sProfilePicked = false;
+                ImGui::EndTabItem();
+            }
+        }
+        ImGui::EndTabBar();
+    }
+    auto& pc = sCfg.ports[sTestPort];
+    if (ImGui::BeginTable("controller-device", 2, ImGuiTableFlags_SizingStretchSame)) {
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled("Input device");
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::BeginCombo("##device", portDeviceLabel(pc).c_str())) {
+            auto option = [&](const char* label, const std::string& device, const std::string& name) {
+                if (ImGui::Selectable(label, pc.device == device)) {
+                    pc.device = device;
+                    pc.deviceName = name;
+                    changed = true;
+                    sProfilePicked = false;
+                }
+            };
+            option("Auto (next free controller)", "auto", "");
+            option("Keyboard and mouse", "keyboard", "");
+            option("None", "none", "");
+            for (const auto& pad : sPads) {
+                const std::string label = pad.name + (pad.ordinal ? " #" + std::to_string(pad.ordinal + 1) : "") +
+                                          "##" + pad.deviceId();
+                option(label.c_str(), pad.deviceId(), pad.name);
+            }
+            ImGui::EndCombo();
+        }
+        if (changed) assign();
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled("Binding profile");
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * .65f);
+        profilePicker(false, sTestPort);
+        ImGui::EndTable();
+    }
+    const auto& port = sPorts[sTestPort];
+    if (port.pad.id) ImGui::TextColored(ImVec4(.4f, .85f, .65f, 1), "Connected: %s", port.pad.name.c_str());
+    else if (pc.device == "keyboard" || port.keyboard) ImGui::TextDisabled("Keyboard and mouse");
+    else ImGui::TextDisabled(pc.device == "none" ? "No input device" : "Connect a controller, or select keyboard and mouse");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(pc.device == "keyboard" || pc.device == "none");
+    changed |= recomp::menu::Checkbox("Also use keyboard", &pc.keyboard);
+    ImGui::EndDisabled();
+    Profile* prof = findProfile(sSelProfile);
+    if (!prof) return changed;
+    static int slot = 0;
+    ImGui::RadioButton("Primary bindings", &slot, 0);
+    ImGui::SameLine();
+    ImGui::RadioButton("Alternate bindings", &slot, 1);
+    ImGui::SameLine();
+    ImGui::TextDisabled("Click to remap; right-click to clear");
+
+    const ImVec2 origin = ImGui::GetCursorPos();
+    const float width = ImGui::GetContentRegionAvail().x;
+    const float side = std::clamp(width * .24f, 140 * scale, 220 * scale), gap = 12 * scale;
+    const float center = std::max(100 * scale, width - 2 * side - 2 * gap);
+    const float row = ImGui::GetFrameHeightWithSpacing();
+    const float fourRows = 36 * scale + 4 * row;
+    const float faceHeight = 36 * scale + 6 * row;
+    const float triggerHeight = 36 * scale + 2 * row;
+    const float height = std::max(faceHeight + gap + fourRows, ImGui::GetContentRegionAvail().y - row - 2 * gap);
+    const float diagramH = std::min(center * .82f, std::max(80 * scale, height - triggerHeight - gap));
+    const float diagramW = diagramH / .82f;
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 7 * scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(9 * scale, 8 * scale));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(.075f, .09f, .12f, 1));
+    auto group = [&](const char* name, float x, float y, float w, float h, std::initializer_list<int> targets) {
+        ImGui::SetCursorPos(ImVec2(origin.x + x, origin.y + y));
+        ImGui::BeginChild(name, ImVec2(w, h), ImGuiChildFlags_Borders);
+        ImGui::TextDisabled("%s", name);
+        for (int t : targets) {
+            ImGui::AlignTextToFramePadding();
+            const char* label = t == tL || t == tR ? "Click" : t == tAnalogL || t == tAnalogR ? "Analog" : kTargetInfo[t].label;
+            ImGui::TextUnformatted(label);
+            ImGui::SameLine(55 * scale);
+            changed |= bindingButton(*prof, t, slot, ImVec2(-1, 0));
+        }
+        ImGui::EndChild();
+    };
+    group("Control stick", 0, 0, side, fourRows, {tStickUp, tStickDown, tStickLeft, tStickRight});
+    group("D-pad", 0, fourRows + gap, side, fourRows, {tDUp, tDDown, tDLeft, tDRight});
+    const float right = side + 2 * gap + center;
+    group("Face buttons", right, 0, side, faceHeight, {tA, tB, tX, tY, tZ, tStart});
+    group("C-stick", right, faceHeight + gap, side, fourRows, {tCUp, tCDown, tCLeft, tCRight});
+    const float triggerW = (center - gap) * .5f;
+    group("L trigger", side + gap, 0, triggerW, triggerHeight, {tL, tAnalogL});
+    group("R trigger", side + 2 * gap + triggerW, 0, triggerW, triggerHeight, {tR, tAnalogR});
+    ImGui::SetCursorPos(ImVec2(origin.x + side + gap + (center - diagramW) * .5f, origin.y + triggerHeight + gap));
+    controllerDiagram(ImVec2(diagramW, diagramH), port.haveLast ? &port.last : nullptr);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+    ImGui::SetCursorPos(ImVec2(origin.x, origin.y + std::max(height, faceHeight + gap + fourRows) + gap));
+    if (recomp::menu::Button("Reset bindings to defaults")) prof->bind = defaultsFor(*prof).bind, changed = true;
+    ImGui::SameLine();
+    if (recomp::menu::Button("Clear all bindings")) prof->bind = {}, changed = true;
+    ImGui::SameLine();
+    if (recomp::menu::Button("Calibrate sticks and triggers")) selectSubTab("Analog");
     return changed;
 }
 
@@ -1471,6 +1590,10 @@ bool drawTab() {
     bool changed = std::exchange(sUnsaved, false);
     bool local = false;
     if (ImGui::BeginTabBar("controls")) {
+        if (ImGui::BeginTabItem("Controller", nullptr, subTabFlags("Controller"))) {
+            local |= controllerTab();
+            ImGui::EndTabItem();
+        }
         if (ImGui::BeginTabItem("Ports", nullptr, subTabFlags("Ports"))) {
             local |= portsTab();
             ImGui::EndTabItem();
@@ -1479,7 +1602,7 @@ bool drawTab() {
             local |= bindingsTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Sticks, triggers & rumble", nullptr, subTabFlags("Analog"))) {
+        if (ImGui::BeginTabItem("Calibration", nullptr, subTabFlags("Analog"))) {
             local |= analogTab();
             ImGui::EndTabItem();
         }
