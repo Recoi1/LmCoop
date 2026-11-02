@@ -1,16 +1,53 @@
-# Luigi's Mansion Recompiled
+# LmCoop
 
-**No game data is included.** On first start the game asks for your own disc image (ISO, RVZ and or an extracted game folder) of the USA release (GLME01) and/or the European release (GLMP01). It is recommended to use both the USA and PAL versions of the game to experience every feature available in this port. Once the games are selected, it then builds the game for your PC with the bundled compiler, which takes about 20 to 60 seconds on a decent PC.
+A native Windows recompilation of Luigi's Mansion with a Singleplayer / Multiplayer start menu and experimental online co-op.
 
+Based on [rob646464/luigis-mansion-recompiled](https://github.com/rob646464/luigis-mansion-recompiled). This is an independent project by [Recoi1](https://github.com/Recoi1).
 
-## Features
-- **Any resolution, widescreen and ultrawide:** Hor+, with HUD elements anchored to the screen edges and widescreen fixes for full-screen scenes.
-- **High frame rates:** game logic stays at the original 30 updates per second, and the frames in between are interpolated from source-tagged objects. Frame rate goes up to 320 fps, with "Match display refresh rate" and VRR/G-SYNC aware pacing. "Original" keeps the console's 30 fps.
-- **Accurate GameCube rendering:** Better than Dolphin. EFB copies including copy-to-RAM, depth textures, real-time shadows, indirect effects, 6-bit blending and copy filters. A shader precache prepares everything before the game starts, so there are no compile stutters.
-- **Optional Enhanced lighting:** per-pixel and colored lights, soft shadows, a realistic flashlight beam, bloom and ghosts cast a glowing light.
-- **The European Hidden Mansion,** including its boss changes. With both discs, E. Gadd's lab offers the USA and the European Hidden Mansion.
-- **Restored unused content,** all off by default: Toggles to re-enable various cut content, a model viewer, warps to unused rooms and more.
-- **Options for EVERYTHING:** an F1 options menu for everything, difficulty settings, fun tweaks and toggles, rendering options, etc
+**No disc images, retail game assets, saves, or generated game modules are included.** You must supply your own USA disc dump (GLME01 revision 0). Setup builds the game module locally with the bundled compiler.
 
-## Known issues
-- The 2-player mode (Unused content) is unfinished. The plan is to finish it soon, but for now it's mostly in the state it was left in in the original code.
+## Download and play
+
+1. Open [Releases](https://github.com/Recoi1/LmCoop/releases/latest) and download the Windows x64 ZIP.
+2. Extract the entire ZIP to a writable folder on Windows 10 or 11 with a Direct3D 12 capable GPU.
+3. Run `LuigisMansionRecomp.exe`. Keep the DLLs and `llvm` folder beside it.
+4. Drag your USA disc image onto the setup screen, or use Browse. Allow the game module and shaders to build.
+5. Choose **Singleplayer** or **Multiplayer**.
+
+ISO and RVZ disc images are supported. The LmCoop setup screen accepts the USA game; inherited documentation about selecting a European disc does not describe this screen.
+
+## Online co-op
+
+Both players need this same build and their own USA game dump. On the Multiplayer screen, one player chooses **Host (play as Luigi)** and the other **Join (play as Mario)**. Use the host's reachable address, matching port and password. For internet play, the current UI recommends putting both PCs in the same Radmin VPN network and using the host's VPN address.
+
+Online co-op is experimental. Full campaign completion and reliable synchronization across separate PCs have not been verified for this release. The underlying two-player mode also has unfinished areas.
+
+## Controls and data
+
+F1 opens settings. Keyboard, mouse, and controller bindings are available under Controls. Mouse selection is supported on the file selection screen.
+
+Settings, caches and saves use `%APPDATA%\Luigi's Mansion Recompiled` by default. Create `portable.txt` next to the executable before first launch to use a local `portable` folder instead. Back up existing saves before trying experimental multiplayer. Diagnostic output is in `last_run.log` in the data folder.
+
+To uninstall, delete the extracted release folder. Data in AppData remains; remove it separately only if you no longer want the settings and saves.
+
+## Build from source
+
+Clone this repository with its submodule:
+
+```powershell
+git clone --recurse-submodules https://github.com/Recoi1/LmCoop.git
+cd LmCoop
+.\tools\build.ps1 -Configure -Target LuigisMansionRecomp
+```
+
+Requires Visual Studio 2022 C++ build tools, LLVM clang/lld, CMake 3.25+ and Ninja on PATH. No game dump is needed to build the distributable setup/runtime target. The `lmrecomp` developer target embeds translated game code and must remain private. See [setup architecture](docs/SETUP.md) for the inherited technical design; release links in older design documents refer to the original project.
+
+## Credits and licensing
+
+- Original recompilation/runtime: [rob646464/luigis-mansion-recompiled](https://github.com/rob646464/luigis-mansion-recompiled).
+- Decompilation reference: [SomeJakeGuy/lm-decomp](https://github.com/SomeJakeGuy/lm-decomp), CC0; see `decomp/LICENSE`.
+- Aurora: [encounter/aurora](https://github.com/encounter/aurora), MIT; see `extern/aurora/LICENSE` and the local patch series.
+- Other third-party notices are in [NOTICE.md](NOTICE.md). Bundled LLVM uses Apache-2.0 WITH LLVM-exception; its license is included in the download.
+- This project includes AI-assisted development. Codex prepared this GitHub publication; prior AI-assisted work is recorded in the commit history. Do not submit AI-assisted code to lm-decomp.
+
+Luigi's Mansion and its characters belong to Nintendo. This project is not affiliated with or endorsed by Nintendo. No new blanket license is applied to third-party code; retain the existing component licenses and notices.

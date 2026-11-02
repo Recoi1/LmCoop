@@ -18,7 +18,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$repo = "rob646464/luigis-mansion-recompiled"
+$repo = "Recoi1/LmCoop"
 
 function Step($msg) { Write-Host ""; Write-Host "==> $msg" -ForegroundColor Cyan }
 
