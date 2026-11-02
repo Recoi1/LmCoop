@@ -14,6 +14,7 @@ LM_EMBEDDED(kSplitsUs)
 LM_EMBEDDED(kSymbolsPal)
 LM_EMBEDDED(kVersionMapPal)
 LM_EMBEDDED(kHooks)
+LM_EMBEDDED(kLogo)
 LM_EMBEDDED(kCtxHeader)
 LM_EMBEDDED(kModuleAbiHeader)
 LM_EMBEDDED(kModuleRt)
@@ -31,6 +32,7 @@ std::string_view symbols(bool pal) { return pal ? view(kSymbolsPal, kSymbolsPalS
 std::string_view splits(bool pal) { return pal ? std::string_view{} : view(kSplitsUs, kSplitsUsSize); }
 std::string_view versionMap(bool pal) { return pal ? view(kVersionMapPal, kVersionMapPalSize) : std::string_view{}; }
 std::string_view hooks() { return view(kHooks, kHooksSize); }
+std::string_view logo() { return view(kLogo, kLogoSize); }
 std::string_view ctxHeader() { return view(kCtxHeader, kCtxHeaderSize); }
 std::string_view moduleAbiHeader() { return view(kModuleAbiHeader, kModuleAbiHeaderSize); }
 std::string_view moduleRt() { return view(kModuleRt, kModuleRtSize); }

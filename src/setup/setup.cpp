@@ -7,6 +7,7 @@
 #include "recomp/ui_scale.h"
 #include "setup/disc.h"
 #include "setup/hm_overlay.h"
+#include "setup/logo.h"
 #include "setup/module_builder.h"
 
 #include <aurora/aurora.h>
@@ -84,8 +85,8 @@ void validate(Slot& s, GameVersion expected) {
         return;
     }
     if (v != expected) {
-        s.message = std::string("This is the ") + (v == GameVersion::PAL ? "European" : "USA") +
-                    " disc; put it in the other slot.";
+        s.message = v == GameVersion::PAL ? "This is the European disc; LmCoop needs the USA disc (GLME01)."
+                                          : "This is the USA disc; put it in the other slot.";
         return;
     }
     s.valid = true;
@@ -230,13 +231,36 @@ bool run(const Options& opts, LaunchInfo& launch) {
 
     port::setPhase("setup");
     bool finished = false;
-    int framesDrawn = 0;  // the background precache is queued by the first frame (Aurora patch 0013)
+    int framesDrawn = 0;
+    std::vector<std::string> dropped;  // the background precache is queued by the first frame (Aurora patch 0013)
     while (!finished) {
         port::heartbeat();
         for (const AuroraEvent* ev = aurora_update(); ev && ev->type != AURORA_NONE; ++ev) {
             if (ev->type == AURORA_EXIT) return false;
             if (ev->type == AURORA_PAUSED) port::setPhase(nullptr);  // waits for the window: not a hang
             if (ev->type == AURORA_UNPAUSED) port::setPhase("setup");
+            // Files dropped on the window (LmCoop screen): only while waiting for a disc.
+            if (ev->type == AURORA_SDL_EVENT && ev->sdl.type == SDL_EVENT_DROP_FILE && ev->sdl.drop.data &&
+                screen == Screen::Pick)
+                dropped.emplace_back(ev->sdl.drop.data);
+        }
+        // The first valid USA disc of a drop wins; otherwise the first file's problem is shown.
+        if (!dropped.empty()) {
+            Slot first;
+            for (const std::string& path : dropped) {
+                Slot s;
+                s.path = path;
+                validate(s, GameVersion::USA);
+                if (s.valid) {
+                    first = s;
+                    break;
+                }
+                if (first.path.empty()) first = s;
+            }
+            dropped.clear();
+            slots[0] = first;
+            chooseBase();
+            if (slots[0].valid) begin();
         }
         {
             std::lock_guard lk(sPickM);
@@ -247,6 +271,7 @@ bool run(const Options& opts, LaunchInfo& launch) {
                     validate(slots[i], i ? GameVersion::PAL : GameVersion::USA);
                     if (slots[i].valid && !slots[1 - i].valid) base = slots[i].version;
                     chooseBase();
+                    if (i == 0 && slots[0].valid && screen == Screen::Pick) begin();  // LmCoop: no extra click
                 }
             }
         }
@@ -268,98 +293,51 @@ bool run(const Options& opts, LaunchInfo& launch) {
         const ImGuiViewport* vp = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(vp->WorkPos);
         ImGui::SetNextWindowSize(vp->WorkSize);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 1));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
         ImGui::Begin("##setup", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                          ImGuiWindowFlags_NoBringToFrontOnFocus);
         // Menu size (ui_scale.cpp; setup's Auto: 600 lines = 100%), font rasterized at that size.
         const float scale = recomp::ui::scale();
-        ImGui::Dummy(ImVec2(0, 12 * scale));
-        ImGui::Text("Luigi's Mansion Recompiled");
-        ImGui::Separator();
+        // LmCoop look: black, the logo centered in the upper part, one line of text under it.
+        ImGui::Dummy(ImVec2(0, ImGui::GetWindowHeight() * 0.12f));
+        drawLogo();
+        ImGui::Dummy(ImVec2(0, 24 * scale));
+        const ImVec4 red(1.0f, 0.45f, 0.4f, 1), grey(0.6f, 0.6f, 0.6f, 1);
+        auto centeredButton = [&](const char* label) {
+            ImGui::SetCursorPosX((ImGui::GetWindowWidth() - ImGui::CalcTextSize(label).x) * 0.5f - 4 * scale);
+            return ImGui::SmallButton(label);
+        };
         if (screen == Screen::Pick) {
-            ImGui::TextWrapped("This port runs your own copy of Luigi's Mansion. Choose your disc image (ISO or RVZ). "
-                               "The game is translated and compiled for this PC once; that takes a minute or two.");
-            // Portable mode (docs/SETUP.md): where everything goes, or why it was not possible.
-            if (const auto& loc = port::dataLocation(); loc.portable) {
-                const auto s = loc.root.u8string();
-                ImGui::TextDisabled("Portable mode: everything is stored in %s", std::string(s.begin(), s.end()).c_str());
-            } else if (!loc.problem.empty()) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.4f, 1));
-                ImGui::TextWrapped("%s", loc.problem.c_str());
-                ImGui::PopStyleColor();
-            }
-            ImGui::Dummy(ImVec2(0, 8 * scale));
-            const char* labels[2] = {"USA disc (GLME01)", "Europe disc (GLMP01)"};
-            const char* notes[2] = {"", "Playable on its own; with a USA disc it also adds the European Hidden Mansion."};
-            for (int i = 0; i < 2; i++) {
-                ImGui::PushID(i);
-                ImGui::Text("%s", labels[i]);
-                ImGui::SameLine();
-                if (*notes[i]) ImGui::TextDisabled("%s", notes[i]);
-                ImGui::TextWrapped("%s", slots[i].path.empty() ? "(none)" : slots[i].path.c_str());
-                if (ImGui::Button("Browse...")) browse(i, slots[i].path);
-#ifndef _WIN32
-                // Linux: the file dialog needs xdg-desktop-portal (or zenity/kdialog); a typed or
-                // pasted path always works (docs/LINUX.md).
-                {
-                    static char typed[2][1024];
-                    ImGui::SameLine();
-                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.6f);
-                    const bool enter = ImGui::InputTextWithHint("##path", "or type / paste the path here",
-                                                                typed[i], sizeof(typed[i]),
-                                                                ImGuiInputTextFlags_EnterReturnsTrue);
-                    ImGui::SameLine();
-                    if ((ImGui::Button("Use") || enter) && typed[i][0]) {
-                        std::string p = typed[i];
-                        while (!p.empty() && (p.back() == ' ' || p.back() == '\n')) p.pop_back();
-                        if (p.size() >= 2 && (p.front() == '\'' || p.front() == '"') && p.back() == p.front())
-                            p = p.substr(1, p.size() - 2);  // pasted from a file manager / shell
-                        if (p.rfind("file://", 0) == 0) p = p.substr(7);
-                        std::lock_guard lk(sPickM);
-                        sPicked[i] = p;
-                        typed[i][0] = 0;
-                    }
-                }
-#endif
-                if (!slots[i].path.empty()) {
-                    ImGui::SameLine();
-                    if (ImGui::Button("Remove")) {
-                        slots[i] = Slot{};
-                        chooseBase();
-                    }
-                    ImGui::SameLine();
-                    if (slots[i].valid) ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1), "%s", slots[i].message.c_str());
-                    else ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1), "%s", slots[i].message.c_str());
-                }
+            if (slots[0].path.empty()) {
+                centeredText("No disc detected, drag & drop Luigi's Mansion (USA) onto this screen...");
+            } else if (!slots[0].valid) {
+                centeredText(slots[0].message.c_str(), red);
+                centeredText("Drag & drop Luigi's Mansion (USA) onto this screen...");
+            } else {
+                centeredText(slots[0].message.c_str(), ImVec4(0.4f, 0.9f, 0.4f, 1));
                 ImGui::Dummy(ImVec2(0, 8 * scale));
-                ImGui::PopID();
+                if (centeredButton("Continue")) begin();
             }
             {
                 std::lock_guard lk(sPickM);
-                if (!sDialogError.empty()) {
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.4f, 1));
-                    ImGui::TextWrapped("%s", sDialogError.c_str());
-                    ImGui::PopStyleColor();
-                }
+                if (!sDialogError.empty()) centeredText(sDialogError.c_str(), red);
             }
-            if (slots[0].valid && slots[1].valid) {
-                ImGui::Text("Version to play:");
-                ImGui::SameLine();
-                if (ImGui::RadioButton("USA", base == GameVersion::USA)) base = GameVersion::USA;
-                ImGui::SameLine();
-                if (ImGui::RadioButton("Europe (50/60 Hz, languages)", base == GameVersion::PAL)) base = GameVersion::PAL;
-                ImGui::TextDisabled("Both versions are prepared; you can switch later in the F1 menu (Game tab).");
-            }
-            ImGui::Dummy(ImVec2(0, 8 * scale));
-            ImGui::BeginDisabled(!(slots[0].valid || slots[1].valid));
-            if (ImGui::Button(started ? "Continue" : "Install and play")) begin();
-            ImGui::EndDisabled();
-            ImGui::SameLine();
-            if (ImGui::Button("Quit")) {
+            if (const auto& loc = port::dataLocation(); !loc.portable && !loc.problem.empty())
+                centeredText(loc.problem.c_str(), ImVec4(1.0f, 0.75f, 0.4f, 1));
+            ImGui::Dummy(ImVec2(0, 16 * scale));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_Text, grey);
+            if (centeredButton("Browse...")) browse(0, slots[0].path);
+            if (centeredButton("Quit")) {
+                ImGui::PopStyleColor(2);
                 ImGui::End();
+                ImGui::PopStyleColor(2);
                 aurora_end_frame();
                 return false;
             }
+            ImGui::PopStyleColor(2);
         } else {
             std::string stage, error;
             float f = 0.0f;
@@ -369,35 +347,42 @@ bool run(const Options& opts, LaunchInfo& launch) {
                 f = job->fraction;
                 error = job->error;
             }
+            const float barW = ImGui::GetWindowWidth() * 0.5f;
+            auto bar = [&](float fraction) {
+                ImGui::Dummy(ImVec2(0, 8 * scale));
+                ImGui::SetCursorPosX((ImGui::GetWindowWidth() - barW) * 0.5f);
+                ImGui::ProgressBar(fraction, ImVec2(barW, 6 * scale), "");
+            };
             if (screen == Screen::Shaders) {
                 const auto pr = recomp::precache::progress();
-                ImGui::TextWrapped("Compiling shaders for your graphics card. This happens once (and again after a "
-                                   "driver or game update).");
-                ImGui::Dummy(ImVec2(0, 8 * scale));
-                ImGui::ProgressBar(pr.fraction(), ImVec2(-1, 0));
-                ImGui::Text("Compiling shaders: %u / %u", pr.done, pr.total);
+                char line[96];
+                std::snprintf(line, sizeof(line), "Compiling shaders for your graphics card... %u / %u", pr.done, pr.total);
+                centeredText(line);
+                bar(pr.fraction());
                 // (No "play now": the game waits for its shaders anyway, precache.h holdGame.)
             } else if (screen == Screen::Working) {
-                ImGui::TextWrapped("Preparing the game. This happens once per disc (and again after updates).");
-                ImGui::Dummy(ImVec2(0, 8 * scale));
-                ImGui::ProgressBar(f, ImVec2(-1, 0));
-                ImGui::TextWrapped("%s", stage.c_str());
-                ImGui::Dummy(ImVec2(0, 8 * scale));
-                if (ImGui::Button("Cancel")) {
+                centeredText(("Building LmCoop from your disc... " + stage).c_str());
+                bar(f);
+                ImGui::Dummy(ImVec2(0, 16 * scale));
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_Text, grey);
+                if (centeredButton("Cancel")) {
                     job.reset();  // joins the worker after it notices
                     screen = Screen::Pick;
                 }
+                ImGui::PopStyleColor(2);
             } else {
-                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1), "Setup failed");
-                ImGui::TextWrapped("%s", error.c_str());
+                centeredText(("Setup failed: " + error).c_str(), red);
+                centeredText("Drag & drop the disc again, or go back.");
                 ImGui::Dummy(ImVec2(0, 8 * scale));
-                if (ImGui::Button("Back")) {
+                if (centeredButton("Back")) {
                     job.reset();
                     screen = Screen::Pick;
                 }
             }
         }
         ImGui::End();
+        ImGui::PopStyleColor(2);
         aurora_end_frame();
         framesDrawn++;
         // While the game is prepared and the shaders compile (from the first frame on): frames below

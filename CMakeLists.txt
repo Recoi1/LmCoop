@@ -184,7 +184,8 @@ set(LM_EMBEDDED_FILES
     kSymbolsUs=decomp/config/GLME01/symbols.txt kSplitsUs=decomp/config/GLME01/splits.txt
     kSymbolsPal=decomp/config/GLMP01_00/symbols.txt kVersionMapPal=tools/recomp/GLMP01_map.txt
     kHooks=tools/recomp/hooks.txt kCtxHeader=src/recomp/ctx.h kModuleAbiHeader=src/recomp/module_abi.h
-    kModuleRt=src/recomp/module_rt.cpp kRecompilerSource=src/recompiler/recompiler.cpp)
+    kModuleRt=src/recomp/module_rt.cpp kRecompilerSource=src/recompiler/recompiler.cpp
+    kLogo=assets/lm_coop_logo.png)
 set(_embed_deps)
 foreach (_e ${LM_EMBEDDED_FILES})
     string(REGEX REPLACE "^[^=]*=" "${CMAKE_SOURCE_DIR}/" _f ${_e})
@@ -197,6 +198,7 @@ add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/embedded_data.cpp
     COMMENT "Embedding setup data"
     VERBATIM)
 target_sources(LuigisMansionRecomp PRIVATE ${CMAKE_BINARY_DIR}/embedded_data.cpp)
+target_link_libraries(LuigisMansionRecomp PRIVATE PNG::PNG)  # the LmCoop logo (src/setup/logo.cpp)
 # Dev builds use the LLVM that built them when no bundled llvm/ is next to the exe.
 # The module linker is lld-link on Windows, ld.lld on Linux (src/setup/module_builder.cpp).
 if (WIN32)
