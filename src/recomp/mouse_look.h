@@ -31,12 +31,13 @@ inline void facing(std::uint16_t yaw, float& fx, float& fz) {
     fx = std::sin(a), fz = std::cos(a);
 }
 
-// The aim pitch in degrees after `up` pixels of upward mouse motion. The game keeps it between 0
-// (level) and 29.4 (measured, with the C-stick: up = 29.4, down = 0, resting about 11), and the stick
-// is the other way round from a mouse, so mouse up lowers it.
-constexpr float kMaxPitch = 29.4f;
-inline float pitched(float pitch, float up, float sensitivity = 1.0f) {
-    return std::clamp(pitch - up * sensitivity * kDegreesPerPixel, 0.0f, kMaxPitch);
+// The flashlight and vacuum aim: a blend value at actor +0x8AC, 0 to 1 with 0.5 neutral, that the
+// C-stick eases (down raises it: 0.5 to 1.0 in about 15 frames, the beam going from slightly down to
+// 70 degrees up; up lowers it). The pose, the beam and the nozzle follow it (measured). Mouse up aims up,
+// 0.0009 a pixel at sensitivity 1 (about 550 pixels from level to straight up).
+constexpr float kAimPerPixel = 0.0009f;
+inline float aimed(float aim, float up, float sensitivity = 1.0f) {
+    return std::clamp(aim + up * sensitivity * kAimPerPixel, 0.0f, 1.0f);
 }
 
 // W/A/S/D relative to where the player faces: the game moves Luigi relative to its camera, so the

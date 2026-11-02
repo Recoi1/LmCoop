@@ -87,9 +87,11 @@ Keyboard and mouse:
 | Analog L / R | (none: the L/R clicks give a full press) |
 
 Moving the mouse while walking around (keyboard and mouse profile) turns Luigi left/right and
-raises or lowers the camera at once, 1:1. After the mouse has been used, W A S D move relative to
-where Luigi faces (W forward, A/D sideways, S back) and he keeps facing the mouse's way while he
-walks; the arrow keys (C-stick) still turn him. Mouse sensitivity is in the Controls menu.
+aims the flashlight and vacuum up/down at once, 1:1 (mouse up aims up; the camera stays where it is).
+The aim stays where you leave it. After the mouse has been used, W A S D move relative to where
+Luigi faces (W forward, A/D sideways, S back) and he keeps facing the mouse's way while he walks;
+the arrow keys (C-stick) still turn and tilt him, and take over from the mouse while pressed.
+Mouse sensitivity is in the Controls menu.
 
 Tab (fast-forward), F1 (menu), F3/F4 (debug overlays) and Esc are left free.
 

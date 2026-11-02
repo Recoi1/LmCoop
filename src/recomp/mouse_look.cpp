@@ -22,8 +22,10 @@ std::atomic<float> sPending{0.0f}, sPendingPitch{0.0f};
 std::uint16_t sYaw = 0;  // the facing the mouse holds
 bool sYawOn = false, sMouseSeen = false;
 std::atomic<bool> sStickTurn{false}, sStickPitch{false};  // the C-stick is turning / tilting this frame (arrow keys, a gamepad)
-float sPitch = 0;  // degrees the look-at is held at
-bool sPitchOn = false;
+float sAim = 0.5f;  // the aim blend the mouse holds (0 to 1, 0.5 neutral)
+bool sAimOn = false;
+float sCamPitch = 0;  // the camera pitch (radians) kept while the mouse aims
+bool sCamPin = false;
 
 // The player this PC controls: player 1, or the online client's player 2.
 u32 localActor() {
@@ -50,12 +52,16 @@ float scripted(const char* name, u32& done) {
 }  // namespace
 
 void addPixels(float pixels) {
+    static const bool sTest = std::getenv("LM_TEST_INPUT_ONLY") != nullptr;  // tests ignore the physical mouse
+    if (sTest) return;
     float cur = sPending.load();
     while (!sPending.compare_exchange_weak(cur, cur + pixels)) {
     }
 }
 
 void addPitchPixels(float up) {
+    static const bool sTest = std::getenv("LM_TEST_INPUT_ONLY") != nullptr;
+    if (sTest) return;
     float cur = sPendingPitch.load();
     while (!sPendingPitch.compare_exchange_weak(cur, cur + up)) {
     }
@@ -71,6 +77,27 @@ void setYaw(Ctx& c, u32 self, std::uint16_t yaw) {
     wr16(self + 0x8A, yaw);
 }
 
+// The aim blend (0 to 1, 0.5 neutral) the game copies into actor +0x8AC every frame in its movement
+// routine: *(actor + 0x7EC) + 0x240. Writing the copy does nothing (measured); this is the source.
+u32 aimSource(u32 self) {
+    const u32 obj = rd32(self + 0x7EC);
+    return gu::inMem1(obj) ? obj + 0x240 : 0;
+}
+
+// The game tilts its camera along with the aim; the mouse aims the beam and leaves the camera where it
+// was. The camera (object at +0x798) looks from its eye (+0x98) at its look-at point (+0x8C): the eye's
+// height over the look-at, for the distance on the ground, is the pitch (measured). Rewritten every
+// frame (after the game's update, so what is drawn is this).
+void pinCamera(u32 self) {
+    const u32 cam = rd32(self + 0x798);
+    if (!gu::inMem1(cam)) return;
+    const float lx = rdf32(cam + 0x8C), ly = rdf32(cam + 0x90), lz = rdf32(cam + 0x94);
+    const float ex = rdf32(cam + 0x98), ey = rdf32(cam + 0x9C), ez = rdf32(cam + 0xA0);
+    const float run = std::hypot(ex - lx, ez - lz);
+    if (!sCamPin) sCamPitch = std::atan2(ey - ly, run), sCamPin = true;
+    wrf32(cam + 0x9C, ly + run * std::tan(sCamPitch));
+}
+
 // Walking around freely: scene 2, mode 0, and Luigi's own state +0x1180 is 5 (normal) or 1 (vacuum on).
 // Hits, doors and other scripted moments are left to the game.
 bool freeMovement(u32 self) {
@@ -83,13 +110,11 @@ bool freeMovement(u32 self) {
 
 void beforeUpdate(Ctx& c, u32 self) {
     if (ver::pal() || !g_mem || self != localActor()) return;  // field offsets are the USA game's
-    static u32 sTurnDone = 0, sPitchDone = 0, sRoom = ~0u;
+    static u32 sTurnDone = 0, sPitchDone = 0;
     const float pixels = sPending.exchange(0.0f) + scripted("LM_TEST_TURN", sTurnDone);
     const float up = sPendingPitch.exchange(0.0f) + scripted("LM_TEST_PITCH", sPitchDone);
     if (pixels != 0 || up != 0) sMouseSeen = true;
-    if (!freeMovement(self)) return void(sPitchOn = sYawOn = false);  // motion from anything else is dropped
-    // Each room has its own camera: a new room starts from the game's own pitch again.
-    if (const u32 room = rd32(VA(0x803A3CA0) + 12) >> 24; room != sRoom) sRoom = room, sPitchOn = false;
+    if (!freeMovement(self)) return void(sAimOn = sCamPin = sYawOn = false);  // motion from anything else is dropped
     const std::uint16_t now = rd16(self + 0x88);
     if (!sYawOn) {
         sYaw = now, sYawOn = true;
@@ -99,33 +124,28 @@ void beforeUpdate(Ctx& c, u32 self) {
     if (sStickTurn && pixels == 0) sYaw = now;  // the C-stick turns him: the game's turn stands
     if (pixels != 0) sYaw = turned(sYaw, pixels, 1.0f);
     if (sMouseSeen && sYaw != now) setYaw(c, self, sYaw);
-    if (sStickPitch && up == 0) sPitchOn = false;  // the C-stick tilts it: the game's pitch stands; the mouse picks it up again
-    if (up != 0 || sPitchOn) {
-        // The camera (object at +0x798: look-at at +0x8C, eye at +0x98) is what the game raises and
-        // lowers with the C-stick, easing for ~100 frames; F80 (+0xF80) is the direction from the eye
-        // to the look-at, rebuilt each frame from it. The pitch is kept here and written into both
-        // every frame (the eye's height above the look-at, over their distance on the ground).
-        const u32 cam = rd32(self + 0x798);
-        if (gu::inMem1(cam)) {
-            const float lx = rdf32(cam + 0x8C), ly = rdf32(cam + 0x90), lz = rdf32(cam + 0x94);
-            const float ex = rdf32(cam + 0x98), ey = rdf32(cam + 0x9C), ez = rdf32(cam + 0xA0);
-            const float run = std::hypot(ex - lx, ez - lz);
-            if (!sPitchOn) sPitch = std::atan2(ey - ly, run) * (180.0f / 3.14159265359f), sPitchOn = true;
-            sPitch = pitched(sPitch, up);
-            const float r = sPitch * (3.14159265359f / 180.0f);
-            wrf32(cam + 0x9C, ly + run * std::tan(r));
-            wrf32(self + 0xF84, -std::sin(r));
-            wrf32(self + 0xF88, std::copysign(std::cos(r), rdf32(self + 0xF88)));
-        }
+    if (sStickPitch && up == 0) sAimOn = sCamPin = false;  // the C-stick tilts it: the game's aim and camera stand; the mouse picks them up again
+    if (up != 0 || sAimOn) {
+        const u32 src = aimSource(self);
+        if (!src) return;
+        if (!sAimOn) sAim = rdf32(self + 0x8AC), sAimOn = true;  // where the game has it now (not the source: that is stale at rest)
+        sAim = aimed(sAim, up);
+        wrf32(src, sAim);
+        pinCamera(self);
     }
     // The mouse is not pad input, so without this the game's idle timer (+0x116C, counts frames of
-    // standing still) would run out and Luigi's idle animation turns him on its own (measured).
-    if (pixels != 0 || up != 0) wrf32(self + 0x116C, 0.0f);
+    // standing still) would run out and Luigi's idle animation turns him on its own (measured). After 60
+    // idle frames the game also recenters the aim, so the timer stays at zero while the mouse holds one.
+    if (pixels != 0 || up != 0 || sAimOn) wrf32(self + 0x116C, 0.0f);
 }
 
 void afterUpdate(Ctx& c, u32 self) {
     // The game turns him toward the way he walks; with a mouse the facing is the mouse's.
     if (ver::pal() || !g_mem || !sMouseSeen || !sYawOn || self != localActor() || !freeMovement(self)) return;
+    if (sAimOn && !sStickPitch) {
+        if (const u32 src = aimSource(self)) wrf32(src, sAim);
+        pinCamera(self);
+    }
     if (sStickTurn) return void(sYaw = rd16(self + 0x88));  // the C-stick is turning him: let it
     setYaw(c, self, sYaw);
 }
