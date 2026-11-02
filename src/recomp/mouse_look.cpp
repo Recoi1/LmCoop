@@ -3,11 +3,10 @@
 
 #include "recomp/coop.h"
 #include "recomp/guest_util.h"
+#include "recomp/hle.h"
 #include "recomp/runtime.h"
 #include "recomp/skip.h"
 #include "recomp/version.h"
-
-#include <dolphin/pad.h>
 
 #include <atomic>
 #include <cstdio>
@@ -17,9 +16,7 @@
 namespace recomp::mouselook {
 namespace {
 
-Follow sFollow;
 std::atomic<float> sPending{0.0f};
-constexpr int kNone = 1000;  // not steering: the pad's own C-stick stays
 
 // The player this PC controls: player 1, or the online client's player 2.
 u32 localActor() {
@@ -44,17 +41,6 @@ float scripted() {
     return px;
 }
 
-int stickX(float pixels) {
-    // Only while walking around (scene 2, mode 0); anything else ends the steering.
-    const u32 p = g_mem && rd32(VA(0x804D80A0)) == 2 && rd32(VA(0x804D80C4)) == 0 ? localActor() : 0;
-    if (!p) {
-        sFollow = Follow{};
-        return kNone;
-    }
-    const int x = sFollow.stick(rd16(p + 0x820), pixels);
-    return sFollow.active || x ? x : kNone;
-}
-
 }  // namespace
 
 void addPixels(float pixels) {
@@ -63,11 +49,20 @@ void addPixels(float pixels) {
     }
 }
 
-void pad(PADStatus* st) {
-    if (const int x = stickX(sPending.exchange(0.0f) + scripted()); x != kNone) {
-        st[0].substickX = s8(x);
-        st[0].err = PAD_ERR_NONE;
-    }
+void beforeUpdate(Ctx& c, u32 self) {
+    if (!g_mem || self != localActor()) return;
+    const float pixels = sPending.exchange(0.0f) + scripted();
+    // Only while walking around (scene 2, mode 0); motion from anything else is dropped.
+    if (pixels == 0 || rd32(VA(0x804D80A0)) != 2 || rd32(VA(0x804D80C4)) != 0) return;
+    const std::uint16_t yaw = turned(rd16(self + 0x88), pixels, 1.0f);
+    // The game's own "set rotation" (fn_800B1B3C): the movement object's angles, the facing
+    // quaternion (+0xF38), the facing vector (+0xF48) and the model's copy (*(+0x7BC)) together.
+    static const u32 sSetRotation = VA(0x800B1B3C);
+    guestCall(c, sSetRotation, self, rd16(self + 0x84), yaw, rd16(self + 0x8C));
+    wr16(self + 0x8A, yaw);
+    // The mouse is not pad input, so without this the game's idle timer (+0x116C, counts frames of
+    // standing still) would run out and Luigi's idle animation turns him on its own (measured).
+    wrf32(self + 0x116C, 0.0f);
 }
 
 }  // namespace recomp::mouselook

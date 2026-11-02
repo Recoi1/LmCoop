@@ -5,6 +5,7 @@
 #include "recomp/gameplay.h"
 #include "recomp/hidden_mansion.h"
 #include "recomp/hle.h"
+#include "recomp/mouse_look.h"
 #include "recomp/lightning_test.h"
 #include "recomp/mirror_world.h"
 #include "recomp/runtime.h"
@@ -209,6 +210,7 @@ HLE(fn_800B783C) {
     if (ver::pal()) {
         // The European update sets the mode byte itself every frame (on in map 11 of the hidden
         // mansion after 15 frames, else off); fn_800B84E4 below overrides it for the options.
+        mouselook::beforeUpdate(c, self);
         callOriginal(c, "fn_800B783C");
         if (sTrace && ++sTick % 30 == 0)
             log("[hm] luigi map %u pos %.1f %.1f %.1f mode %u", rd32(kCurMapNo), rdf(self + 0x44), rdf(self + 0x48),
@@ -234,6 +236,7 @@ HLE(fn_800B783C) {
             sRideSet = false;
         }
     }
+    mouselook::beforeUpdate(c, self);
     callOriginal(c, "fn_800B783C");
     if (sTrace && ++sTick % 30 == 0)
         log("[hm] luigi map %u pos %.1f %.1f %.1f mode %u", rd32(kCurMapNo), rdf(self + 0x44), rdf(self + 0x48),
