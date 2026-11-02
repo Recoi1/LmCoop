@@ -13,6 +13,7 @@
 #include "recomp/audio.h"
 #include "recomp/hle.h"
 #include "recomp/skip.h"
+#include "recomp/online.h"
 
 #include <SDL3/SDL.h>
 
@@ -306,7 +307,7 @@ void outPushGuestBlock(u32 addr, u32 bytes) {
     const bool mono = as.output == port::AudioOutput::Mono;
     // Swap left/right (F1), and the PAL Hidden Mansion mirrors the picture, so the speakers too.
     const bool swap = as.swapChannels != hm::mirrorActive();
-    const float gain = std::clamp(as.masterVolume, 0.0f, 1.0f) * skip::audioGain() / 32768.0f;
+    const float gain = std::clamp(as.masterVolume, 0.0f, 1.0f) * skip::audioGain() * (online::loading() ? 0.0f : 1.0f) / 32768.0f;
     const SideSample* side = ch > 2 ? sideFor(addr) : nullptr;
 
     static thread_local std::vector<float> buf;

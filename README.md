@@ -6,7 +6,7 @@ A native Windows recompilation of Luigi's Mansion with a Singleplayer / Multipla
 
 Based on [rob646464/luigis-mansion-recompiled](https://github.com/rob646464/luigis-mansion-recompiled). This is an independent project by [Recoi1](https://github.com/Recoi1).
 
-**No disc images, retail game assets, saves, or generated game modules are included.** You must supply your own USA disc dump (GLME01 revision 0). Setup builds the game module locally with the bundled compiler.
+**No disc images, extracted game data, saves, or generated game modules are included.** You must supply your own USA disc dump (GLME01 revision 0). Setup builds the game module locally with the bundled compiler.
 
 ## Download and play
 
@@ -21,6 +21,12 @@ ISO and RVZ disc images are supported. The LmCoop setup screen accepts the USA g
 ## Online co-op
 
 Both players need this same build and their own USA game dump. On the Multiplayer screen, one player chooses **Host (play as Luigi)** and the other **Join (play as Mario)**. Use the host's reachable address, matching port and password. For internet play, the current UI recommends putting both PCs in the same Radmin VPN network and using the host's VPN address.
+
+The host chooses a save and enters the game. The joining player sees a loading screen and
+automatically enters the host's current room as Mario, without selecting a local save.
+The loading screen remains while the host is in menus or changing maps. Player 2's own
+saves are read-only during the session. Both PCs must update together to version 1.2.0
+or newer; older online builds cannot join this protocol.
 
 Online co-op is experimental. Full campaign completion and reliable synchronization across separate PCs have not been verified for this release. The underlying two-player mode also has unfinished areas.
 

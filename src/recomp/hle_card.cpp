@@ -9,6 +9,7 @@
 // ones also deliver it to their callback through an interrupt.
 #include "recomp/hle.h"
 #include "recomp/sched.h"
+#include "recomp/online.h"
 
 #include <aurora/card.h>
 #include <dolphin/card.h>
@@ -120,11 +121,13 @@ s32 doCheck(u32 chan) {
 }
 
 s32 doFormat(u32 chan) {
+    if (online::guest()) return CARD_RESULT_NOPERM;
     if (const s32 r = mountedOrError(chan); r != CARD_RESULT_READY) return r;
     return CARDFormat(s32(chan));
 }
 
 s32 doCreate(u32 chan, u32 name, u32 size, u32 fileInfo) {
+    if (online::guest()) return CARD_RESULT_NOPERM;
     if (const s32 r = mountedOrError(chan); r != CARD_RESULT_READY) return r;
     CARDFileInfo fi{};
     const s32 r = CARDCreate(s32(chan), Name(name).s, size, &fi);
@@ -144,6 +147,7 @@ s32 doRead(u32 fileInfo, u32 addr, u32 length, u32 offset) {
 }
 
 s32 doWrite(u32 fileInfo, u32 addr, u32 length, u32 offset) {
+    if (online::guest()) return CARD_RESULT_NOPERM;
     CARDFileInfo fi = loadFileInfo(fileInfo);
     if (const s32 r = mountedOrError(u32(fi.chan)); r != CARD_RESULT_READY) return r;
     const s32 r = CARDWrite(&fi, hostp(addr), s32(length), s32(offset));
@@ -152,6 +156,7 @@ s32 doWrite(u32 fileInfo, u32 addr, u32 length, u32 offset) {
 }
 
 s32 doSetStatus(u32 chan, u32 fileNo, u32 stat) {
+    if (online::guest()) return CARD_RESULT_NOPERM;
     if (const s32 r = mountedOrError(chan); r != CARD_RESULT_READY) return r;
     const CARDStat st = loadStat(stat);
     return CARDSetStatus(s32(chan), s32(fileNo), &st);

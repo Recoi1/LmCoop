@@ -12,5 +12,6 @@ std::string_view moduleAbiHeader();     // src/recomp/module_abi.h
 std::string_view moduleRt();            // src/recomp/module_rt.cpp
 std::string_view recompilerSource();    // src/recompiler/recompiler.cpp (part of the cache key)
 std::string_view logo();                // assets/lm_coop_logo.png (setup/logo.cpp)
+std::string_view joinLoading();         // assets/join-loading.png (user-supplied loading screen)
 
 }  // namespace setup::embedded

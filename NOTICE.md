@@ -10,5 +10,7 @@
 lm-decomp does not accept AI-assisted contributions. Code in this repository that was
 written with AI assistance must not be submitted upstream to lm-decomp.
 
-This project contains no Nintendo assets or code from the retail executable.
-Users must provide their own disc dump.
+No extracted game data or generated code from the retail executable is distributed.
+Users must provide their own disc dump. The loading artwork in `assets/join-loading.png`
+was supplied by the project maintainer. Character artwork and trademarks belong to
+their respective owners and are not covered by the code licenses.

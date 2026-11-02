@@ -175,6 +175,7 @@ fn_8005C760 us pal
 # end-of-frame copy where debug switches are applied and the model viewer draws.
 fn_8000C188 us pal
 fn_8000B4A0 us pal
+fn_8000BA4C
 fn_801D7114 us pal
 LMChangeFrameBuffer__Fv us pal
 # Warp arrivals hold back the destination's entry events (event trigger condition check).

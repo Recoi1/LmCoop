@@ -29,6 +29,7 @@
 #include "recomp/hle.h"
 #include "recomp/interp.h"
 #include "recomp/module_loader.h"
+#include "recomp/online.h"
 #include "recomp/precache.h"
 #include "recomp/runtime.h"
 #include "recomp/sched.h"
@@ -528,6 +529,7 @@ int main(int argc, char* argv[]) {
             menu::draw();  // applies settings changes (they may change what is being compiled)
             precache::drawHold();
             precache::frame();
+            online::drawLoadingScreen();
             aurora_end_frame();
             // Hold frames well below the display's refresh rate (issue #33): a swap chain image is
             // then always free, so the render worker never waits for one inside Dawn, where the wait
@@ -555,6 +557,7 @@ int main(int argc, char* argv[]) {
         port::setPhase("game loop: F1 menu / overlays");
         menu::draw();
         precache::frame();
+        online::drawLoadingScreen();
         port::setPhase("game loop: present hold");
         pacing::beforeEnd();
         port::setPhase("game loop: aurora_end_frame (GX FIFO drain, hand-off to the render worker)");

@@ -174,6 +174,7 @@ void noteLuigi(unsigned guestActor) {
 // loads map n instead of the mansion the first time map 2 loads; LM_START_APPEAR=<p> picks the
 // mansion appear point.
 HLE(fn_8000C188) {
+    online::beforeMapSetup(c);
     recomp::unusedModelsMapSetup();
     static const int sMap = envInt("LM_START_MAP", -1);
     static const int sAppear = envInt("LM_START_APPEAR", 0);
@@ -190,12 +191,13 @@ HLE(fn_8000C188) {
     sLuigiFrames = 0;
     sSetupFrames = 0;
     sSuppressed.clear();
-    sVisit = sArrivalPending;  // reached by a warp: its entry events are held back
+    sVisit = sArrivalPending || online::joiningMap();  // warps and joins skip destination entry events
     sArrivalPending = false;
     rooms::onMapSetup();
     coop::onMapSetup(c);  // unused 2-player mode: latched per map (coop.cpp)
     unused2::onMapSetup(c);  // second unused-content batch (unused2.cpp)
     callOriginal(c, "fn_8000C188");
+    online::onMapSetup(c);
 }
 
 // Event trigger conditions (trigger record): fn_8002B7BC asks this every frame for each
@@ -208,7 +210,7 @@ HLE(fn_8000C188) {
 HLE(fn_8002B6D4) {
     const u32 trig = c.r[3];
     callOriginal(c, "fn_8002B6D4");
-    if (!sVisit || !port::settings().enhancements.dbgWarpSkipEvents) return;
+    if (!sVisit || (!port::settings().enhancements.dbgWarpSkipEvents && !online::guest())) return;
     bool held = false;
     for (u32 t : sSuppressed) held |= t == trig;
     if (!held && c.r[3] == 1 && sSetupFrames < kEntryWindow && rd32(trig + 0x10) != VA(0x8002C364)) {
@@ -238,6 +240,7 @@ HLE(fn_8018712C) {
 // the scene is settled: two seconds after the map setup, Luigi running for a second where
 // there is one (tearing a map down while it is still being set up crashes), and no event script.
 HLE(fn_8000B4A0) {
+    online::frame(c);
     const int map = sWarpMap.load();
     if (map >= 0) {
         const u32 scene = rd32(kCurSceneId);

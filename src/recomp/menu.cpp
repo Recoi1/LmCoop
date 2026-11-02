@@ -16,6 +16,7 @@
 #include "recomp/frame.h"
 #include "recomp/hidden_mansion.h"
 #include "recomp/interp.h"
+#include "recomp/online.h"
 #include "recomp/pacing.h"
 #include "recomp/silly_world.h"
 #include "recomp/silly.h"
@@ -541,7 +542,7 @@ void startHint() {
     static double sShownAt = -1.0;
     static bool sDone = false;
     if (sOpen) sDone = true;
-    if (sDone || !port::settings().ui.startHint || recomp::frame::guestFrames() == 0) return;
+    if (sDone || online::loading() || !port::settings().ui.startHint || recomp::frame::guestFrames() == 0) return;
     const double now = ImGui::GetTime();
     if (sShownAt < 0.0) {
         sShownAt = now;

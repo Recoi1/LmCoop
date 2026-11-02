@@ -12,22 +12,34 @@ using u16 = std::uint16_t;
 using u32 = std::uint32_t;
 using s8 = std::int8_t;
 
-constexpr u16 kProtocolVersion = 2;  // 2: player names
+constexpr u16 kProtocolVersion = 3;  // 3: host game bootstrap and map generations
 constexpr size_t kMaxPacket = 1200;
 constexpr u32 kMagic = 0x4F434D4C;  // "LMCO"
 constexpr float kMaxCoord = 1e5f;
 
-enum class Kind : u8 { Hello = 1, Welcome = 2, Reject = 3, State = 4, Bye = 5 };
+enum class Kind : u8 { Hello = 1, Welcome = 2, Reject = 3, State = 4, Bye = 5, GameRequest = 6, Game = 7 };
 struct PadState { u16 buttons; s8 stickX, stickY, substickX, substickY; u8 triggerL, triggerR; };
 constexpr size_t kNameSize = 16;  // 15 characters and the terminator
-struct PlayerState { u32 frame; u16 map; u8 room; float pos[3]; float rotY; float vel[3]; u16 anim; u16 hp; PadState pad; char name[kNameSize]; };
-struct Hello { u16 version; u8 dolSha1[20]; u8 passwordHash[32]; };  // SHA-256 of the password
+struct PlayerState { u32 frame; u32 world; u16 map; u8 room; float pos[3]; float rotY; float vel[3]; u16 anim; u16 hp; PadState pad; char name[kNameSize]; };
+// The game's pointer-free save record, encoded/decoded by its own save routines. No game
+// resources or memory addresses travel over the connection, and this is never written to a card.
+constexpr size_t kSaveSize = 0x3B0;
+struct GameState {
+    u32 world;
+    u16 map;
+    u8 room, hidden;
+    float pos[3], rotY;
+    u8 save[kSaveSize], flags[32];
+};
+struct Hello { u16 version; u8 dolSha1[20]; u8 passwordHash[32]; };  // legacy salted SHA-1, zero-padded
 struct Header { u32 magic; Kind kind; u32 seq; };
 
 constexpr size_t kHeaderWireSize = 4 + 1 + 4;
 constexpr size_t kPadWireSize = 2 + 4 + 2;
-constexpr size_t kStateWireSize = 4 + 2 + 1 + 12 + 4 + 12 + 2 + 2 + kPadWireSize + kNameSize;
+constexpr size_t kStateWireSize = 4 + 4 + 2 + 1 + 12 + 4 + 12 + 2 + 2 + kPadWireSize + kNameSize;
 constexpr size_t kHelloWireSize = 2 + 20 + 32;
+constexpr size_t kGameWireSize = 4 + 2 + 1 + 1 + 12 + 4 + kSaveSize + 32;
+static_assert(kHeaderWireSize + kGameWireSize <= kMaxPacket);
 
 namespace wire {
 struct Writer {
@@ -76,7 +88,7 @@ inline bool decode(const u8* in, size_t len, Header& h, const u8*& body, size_t&
     h.magic = r.le<u32>();
     const u8 kind = r.le<u8>();
     h.seq = r.le<u32>();
-    if (h.magic != kMagic || kind < u8(Kind::Hello) || kind > u8(Kind::Bye)) return false;
+    if (h.magic != kMagic || kind < u8(Kind::Hello) || kind > u8(Kind::Game)) return false;
     h.kind = Kind(kind);
     body = in + kHeaderWireSize, bodySize = len - kHeaderWireSize;
     return true;
@@ -84,7 +96,7 @@ inline bool decode(const u8* in, size_t len, Header& h, const u8*& body, size_t&
 
 inline size_t encodeState(const PlayerState& s, u8* out, size_t cap) {
     wire::Writer w{out, cap};
-    w.le(s.frame), w.le(s.map), w.le(s.room);
+    w.le(s.frame), w.le(s.world), w.le(s.map), w.le(s.room);
     for (float v : s.pos) w.f32(v);
     w.f32(s.rotY);
     for (float v : s.vel) w.f32(v);
@@ -99,7 +111,7 @@ inline bool decodeState(const u8* body, size_t n, PlayerState& s) {
     if (n != kStateWireSize) return false;
     wire::Reader r{body, n};
     PlayerState t{};
-    t.frame = r.le<u32>(), t.map = r.le<u16>(), t.room = r.le<u8>();
+    t.frame = r.le<u32>(), t.world = r.le<u32>(), t.map = r.le<u16>(), t.room = r.le<u8>();
     for (float& v : t.pos) v = r.f32();
     t.rotY = r.f32();
     for (float& v : t.vel) v = r.f32();
@@ -116,7 +128,35 @@ inline bool decodeState(const u8* body, size_t n, PlayerState& s) {
     const auto sane = [](float v, float lim) { return std::isfinite(v) && std::fabs(v) <= lim; };
     for (int i = 0; i < 3; i++)
         if (!sane(t.pos[i], kMaxCoord) || !sane(t.vel[i], kMaxCoord)) return false;
-    if (!sane(t.rotY, kMaxCoord) || !r.ok) return false;
+    if (!sane(t.rotY, kMaxCoord) || (t.world && (t.map > 13 || t.room > 127)) || !r.ok) return false;
+    s = t;
+    return true;
+}
+
+inline size_t encodeGame(const GameState& s, u8* out, size_t cap) {
+    wire::Writer w{out, cap};
+    w.le(s.world), w.le(s.map), w.le(s.room), w.le(s.hidden);
+    for (float v : s.pos) w.f32(v);
+    w.f32(s.rotY);
+    w.bytes(s.save, kSaveSize), w.bytes(s.flags, sizeof(s.flags));
+    return w.ok ? w.n : 0;
+}
+
+inline bool decodeGame(const u8* body, size_t n, GameState& s) {
+    if (n != kGameWireSize) return false;
+    wire::Reader r{body, n};
+    GameState t{};
+    t.world = r.le<u32>(), t.map = r.le<u16>(), t.room = r.le<u8>(), t.hidden = r.le<u8>();
+    for (float& v : t.pos) v = r.f32();
+    t.rotY = r.f32();
+    r.bytes(t.save, kSaveSize), r.bytes(t.flags, sizeof(t.flags));
+    if (!r.ok || !t.world || t.map > 13 || t.room > 127 || t.hidden > 1) return false;
+    for (float v : t.pos) if (!std::isfinite(v) || std::fabs(v) > kMaxCoord) return false;
+    if (!std::isfinite(t.rotY) || std::fabs(t.rotY) > 3.142f) return false;
+    const auto be16 = [&](size_t p) { return (u32(t.save[p]) << 8) | t.save[p + 1]; };
+    const auto be32 = [&](size_t p) { return (be16(p) << 16) | be16(p + 2); };
+    // These saved counts become actor health and the bounds of its captured-ghost list.
+    if (be16(0x234) > 999 || be16(0x236) < 1 || be16(0x236) > 999 || be32(0x234 + 0xB4) > 64) return false;
     s = t;
     return true;
 }

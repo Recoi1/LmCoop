@@ -5,6 +5,7 @@
 #include "recomp/online_protocol.h"
 
 struct PADStatus;
+namespace recomp { struct Ctx; }
 
 namespace recomp::online {
 
@@ -22,7 +23,15 @@ void setLocal(const PlayerState& s);  // this PC's player, sent at 30 Hz
 // PADRead (hle_pad.cpp), after the script and skip filters: this PC's pad (port 1) drives the
 // local player's port, the other PC's last pad the remote player's; both read as connected.
 void pad(PADStatus* st);
-void frame();          // once per game-scene frame (fn_800112F8 hook, coop_fixes.cpp)
+void frame(Ctx& c);    // scene manager: also runs before a game/save has been selected
+void beforeMapSetup(Ctx& c);  // apply the host's record after the old actors have been destroyed
+void onMapSetup(Ctx& c);  // after the map's actors exist
+bool guest();          // joining this session: local saves are read-only
+bool joiningMap();     // a host snapshot is being loaded
+bool loading();
+void drawLoadingScreen();  // host thread, over the guest's boot/title/loading frames
+void noteSpawnEntry(u32 tool, int entry);
+void spawnValue(u32 tool, int entry, const char* field, u32 out);
 const char* status();  // "off", "waiting", "connected", "rejected: <why>", "disconnected"
 
 bool drawTab();        // Controls tab, "Online" sub-tab. True when a setting changed.

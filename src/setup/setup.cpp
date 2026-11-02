@@ -400,7 +400,7 @@ bool run(const Options& opts, LaunchInfo& launch) {
             ImGui::SetCursorPosX((ImGui::GetWindowWidth() - w) * 0.5f);
             ImGui::BeginGroup();
             ImGui::PushItemWidth(w * 0.5f);
-            centeredText("Host: your friends join you, you play as Luigi. Join: you play as Mario on a friend's game.", grey);
+            centeredText("Host: choose your save and play as Luigi. Join: wait on the loading screen, then enter the host's game as Mario.", grey);
             ImGui::Dummy(ImVec2(0, 6 * scale));
             recomp::online::drawHostJoin(false);
             ImGui::PopItemWidth();

@@ -380,7 +380,6 @@ void nameTag(Ctx& c) {
 u32 cachedPlayer(int idx) { return idx >= 0 && idx < 2 && active() ? sCached[idx] : 0; }
 
 HLE(fn_800112F8) {
-    online::frame();
     if (sEventHoldReset) {
         sEventHoldReset = false;
         sEventHold = false;
@@ -392,7 +391,7 @@ HLE(fn_800112F8) {
     if (fixes()) {
         const u32 p1 = player(c, 0), p2 = player(c, 1);
         // Online host without a client: player 2 is set aside like during an event.
-        const bool alone = online::localIndex() == 0 && !online::connected();
+        const bool alone = online::localIndex() == 0 && !online::remote();
         const bool hold = p1 && p2 && !off(1) && (eventControl(p1) || alone);
         if (hold != sEventHold) {
             holdP2(c, p1, p2, hold);
@@ -405,7 +404,7 @@ HLE(fn_800112F8) {
         }
         if (p1 && p2 && !off(0x40)) mergeProgress(p1, p2);
         if (p1 && p2) retargetObjects(c);  // the player an object deals with (below)
-        if (p1 && p2 && !hold) syncOnline(p1, p2);
+        if (p1 && p2) syncOnline(p1, p2);
         // Player 2 downed while player 1 had nothing to share (1 health left): player 2 stays
         // down, and is revived with half of player 1's health once player 1 has more than 1 again
         // (a heart picked up). Player 1 being downed is the game's own game over.

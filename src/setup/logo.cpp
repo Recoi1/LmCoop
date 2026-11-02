@@ -10,6 +10,30 @@
 #include <vector>
 
 namespace setup {
+namespace {
+ImTextureID readTexture(std::string_view file, int& w, int& h) {
+    png_image img{};
+    img.version = PNG_IMAGE_VERSION;
+    if (!png_image_begin_read_from_memory(&img, file.data(), file.size())) return {};
+    img.format = PNG_FORMAT_RGBA;
+    std::vector<unsigned char> rgba(PNG_IMAGE_SIZE(img));
+    ImTextureID texture{};
+    if (png_image_finish_read(&img, nullptr, rgba.data(), 0, nullptr)) {
+        texture = aurora_imgui_add_texture(img.width, img.height, rgba.data());
+        w = int(img.width), h = int(img.height);
+    }
+    png_image_free(&img);
+    return texture;
+}
+}  // namespace
+
+ImTextureID loadingTexture(int* width, int* height) {
+    static int w = 0, h = 0;
+    static const ImTextureID texture = readTexture(embedded::joinLoading(), w, h);
+    if (width) *width = w;
+    if (height) *height = h;
+    return texture;
+}
 
 ImTextureID logoTexture(int* width, int* height) {
     static ImTextureID sTex{};
@@ -17,19 +41,7 @@ ImTextureID logoTexture(int* width, int* height) {
     static bool sTried = false;
     if (!sTried) {
         sTried = true;
-        const auto file = embedded::logo();
-        png_image img{};
-        img.version = PNG_IMAGE_VERSION;
-        if (png_image_begin_read_from_memory(&img, file.data(), file.size())) {
-            img.format = PNG_FORMAT_RGBA;
-            std::vector<unsigned char> rgba(PNG_IMAGE_SIZE(img));
-            if (png_image_finish_read(&img, nullptr, rgba.data(), 0, nullptr)) {
-                sTex = aurora_imgui_add_texture(img.width, img.height, rgba.data());
-                sW = int(img.width), sH = int(img.height);
-            } else {
-                png_image_free(&img);
-            }
-        }
+        sTex = readTexture(embedded::logo(), sW, sH);
     }
     if (width) *width = sW;
     if (height) *height = sH;

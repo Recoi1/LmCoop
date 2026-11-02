@@ -20,7 +20,10 @@ REQUIREMENTS AND INSTALLATION
 
 MULTIPLAYER (EXPERIMENTAL)
 Both PCs need the same build and their own USA disc dump. Choose Host (Luigi)
-on one PC and Join (Mario) on the other. Use the host's reachable address and
+on one PC and Join (Mario) on the other. The host chooses a save; the joining
+player waits on the loading screen and enters the host's current game directly.
+Player 2 does not choose a local save, and their own saves remain read-only.
+Both PCs must use version 1.2.0 or newer. Use the host's reachable address and
 matching port/password. For internet play the UI recommends a shared Radmin VPN
 network and the host's VPN address. Two-PC synchronization and a complete co-op
 campaign have not been verified for this release; the underlying two-player

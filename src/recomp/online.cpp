@@ -6,8 +6,15 @@
 #include "recomp/online.h"
 
 #include "port/dol.h"
+#include "port/install.h"
 #include "port/settings.h"
+#include "recomp/coop.h"
+#include "recomp/guest_util.h"
 #include "recomp/menu.h"
+#include "recomp/version.h"
+#ifndef LM_STATIC_MODULE
+#include "setup/logo.h"
+#endif
 
 #include <dolphin/pad.h>
 #include <imgui.h>
@@ -131,9 +138,27 @@ Peer sPeer;
 bool sHavePeer = false;
 Clock::time_point sLastRecv, sLastHello;
 u32 sSeq = 0, sFrames = 0;
+u32 sLastStateSeq = 0;
 PlayerState sLocalState{}, sRemote{};
 bool sHaveLocal = false, sHaveRemote = false;
 u32 sRemoteAge = 0;
+u32 sWorld = 0, sJoinedWorld = 0;
+bool sNeedGame = false, sHaveGame = false, sLoadRequested = false;
+GameState sPendingGame{}, sLoadingGame{};
+u32 sSpawnTool = 0;
+int sSpawnEntry = -1;
+Clock::time_point sLastGame;
+enum class JoinStage { Off, Connecting, Waiting, Loading, Playing };
+std::atomic<JoinStage> sJoinStage{JoinStage::Off};
+
+constexpr u32 kSceneControl = 0x803A3AE0, kSceneId = 0x804D80A0;
+constexpr u32 kNextMap = 0x804D80A4, kMap = 0x804D80C8;
+constexpr u32 kEvent = 0x803D2D40, kFlags = 0x803D3399;
+// Phase 2 is safe to leave; the title's MENUOFF flag stays set even when its load is finished.
+bool settled() {
+    return rd32(kSceneControl) == 2 && rd32(0x804D80A8) == 0 &&
+           rd32(kSceneId) == rd32(kSceneControl + 4);
+}
 
 void setStatus(const std::string& s) {
     std::lock_guard lk(sStatusM);
@@ -152,6 +177,10 @@ void closeSocket() {
     }
     sSock = kNoSocket;
     sHavePeer = sHaveRemote = sRejected = false;
+    sHaveLocal = sHaveGame = sNeedGame = sLoadRequested = false;
+    sSpawnTool = 0, sSpawnEntry = -1;
+    sJoinedWorld = 0;
+    sLocalState = {};
     sConnected = false;
 }
 
@@ -254,6 +283,7 @@ void receive() {
                     if (++sRefused <= 5 || sRefused % 1000 == 0) log("[online] refused a join (%u): %s", sRefused, why.c_str());
                     continue;
                 }
+                if (!sHavePeer) sHaveRemote = false;
                 sPeer = p, sHavePeer = true, sLastRecv = Clock::now(), sConnected = true;
                 send(Kind::Welcome, nullptr, 0, p);
                 continue;
@@ -269,7 +299,17 @@ void receive() {
         }
         sLastRecv = Clock::now();
         if (h.kind == Kind::Welcome || h.kind == Kind::Hello) sConnected = true;
-        if (h.kind == Kind::State && decodeState(body, bn, sRemote)) sHaveRemote = true, sConnected = true, sRemoteAge = 0;
+        if (h.kind == Kind::State && sConnected && (!sHaveRemote || int32_t(h.seq - sLastStateSeq) > 0) &&
+            decodeState(body, bn, sRemote)) sHaveRemote = true, sRemoteAge = 0, sLastStateSeq = h.seq;
+        if (h.kind == Kind::GameRequest && !bn && sConnected && sActive.mode == Mode::Host) sNeedGame = true;
+        if (h.kind == Kind::Game && sConnected && sActive.mode == Mode::Join && !sLoadRequested) {
+            GameState game{};
+            if (decodeGame(body, bn, game) && game.world != sJoinedWorld &&
+                (!sHaveRemote || !sRemote.world || game.world == sRemote.world)) {
+                if (!sHaveGame) log("[online] received host game: world %u map %u room %u", game.world, game.map, game.room);
+                sPendingGame = game, sHaveGame = true;
+            }
+        }
         if (h.kind == Kind::State && sHaveRemote) {
             static std::string sLastName;
             if (sLastName != sRemote.name) sLastName = sRemote.name, log("[online] partner: %s", sRemote.name);
@@ -282,11 +322,20 @@ void receive() {
 bool wanted() { return config().mode != Mode::Off; }
 int localIndex() { return sLocal.load(); }
 bool connected() { return sConnected.load(); }
-const PlayerState* remote() { return sHaveRemote && sConnected ? &sRemote : nullptr; }
+bool guest() { return localIndex() == 1; }
+bool loading() {
+    const auto stage = sJoinStage.load();
+    return stage != JoinStage::Off && stage != JoinStage::Playing;
+}
+bool joiningMap() { return guest() && sLoadRequested; }
+const PlayerState* remote() {
+    return sHaveRemote && sConnected && sHaveLocal && sRemote.world && sRemote.world == sLocalState.world ? &sRemote : nullptr;
+}
 u32 remoteAge() { return sRemoteAge; }
 void setLocal(const PlayerState& s) {
     const PadState keep = sLocalState.pad;  // the pad comes from pad()
     sLocalState = s, sLocalState.pad = keep, sHaveLocal = true;
+    sLocalState.world = guest() ? sJoinedWorld : sWorld;
     std::snprintf(sLocalState.name, kNameSize, "%s", sActive.name.c_str());
 }
 
@@ -337,10 +386,17 @@ void pad(PADStatus* st) {
     const PADStatus mine = st[0];
     sLocalState.pad = {mine.button, mine.stickX, mine.stickY, mine.substickX, mine.substickY,
                        mine.triggerLeft, mine.triggerRight};
+    // A joining player never operates the title/file select, or the host's port-1 menus.
+    if (li == 1 && loading()) {
+        st[0] = st[1] = {};
+        st[0].err = st[1].err = PAD_ERR_NONE;
+        sLocalState.pad = {};
+        return;
+    }
     st[li] = mine;
     PADStatus& other = st[1 - li];
     other = PADStatus{};
-    if (const PlayerState* r = remote()) {
+    if (const PlayerState* r = remote(); r && sHaveLocal && r->world && r->world == sLocalState.world) {
         const PadState& p = r->pad;
         other.button = p.buttons, other.stickX = p.stickX, other.stickY = p.stickY;
         other.substickX = p.substickX, other.substickY = p.substickY;
@@ -357,12 +413,17 @@ const char* status() {
     return sCopy.c_str();
 }
 
-void frame() {
+void frame(Ctx& ctx) {
     const Config c = config();
+    if (c.mode != Mode::Off && !gameSha1()) {
+        setStatus("error: online co-op needs the USA game (GLME01)");
+        return;
+    }
     if (!(c == sActive) || (c.mode != Mode::Off && sSock == kNoSocket && !sRejected && sStatus.rfind("error", 0) != 0)) {
         if (!(c == sActive)) closeSocket();
         sActive = c;
         sLocal = c.mode == Mode::Host ? 0 : c.mode == Mode::Join ? 1 : -1;
+        sJoinStage = c.mode == Mode::Join ? JoinStage::Connecting : JoinStage::Off;
         if (c.mode == Mode::Off) return setStatus("off");
         if (!openSocket(c)) return;
     }
@@ -374,6 +435,7 @@ void frame() {
     const bool wasConnected = sConnected.load();
     if (wasConnected && std::chrono::duration<double>(now - sLastRecv).count() > kTimeout) {
         sConnected = false, sHaveRemote = false;
+        sHaveGame = false;
         if (sActive.mode == Mode::Host) sHavePeer = false;  // a new client may join
         setStatus("disconnected (no packets for 5 s)");
         return;
@@ -390,9 +452,149 @@ void frame() {
         // Before setLocal has a player, the state carries only the pad (filled by pad()).
         send(Kind::State, body, encodeState(sLocalState, body, sizeof(body)), sPeer);
     }
+
+    const bool inGame = settled() && rd32(kSceneId) == 2;
+    if (!inGame) sHaveLocal = false, sLocalState.world = 0;
+    if (sActive.mode == Mode::Host) {
+        if (sNeedGame && sConnected && inGame && rd32(kEvent + 0xC) == 0 && rd32(0x804D80C4) == 0 &&
+            std::chrono::duration<double>(now - sLastGame).count() > kHelloEvery) {
+            const u32 p = coop::player(ctx, 0);
+            if (!p || !sWorld) return;
+            GameState game{};
+            game.world = sWorld, game.map = u16(rd32(kMap)), game.room = u8(rd32(p + 0xB4));
+            game.hidden = rd32(0x804D80C0) != 0;
+            for (int k = 0; k < 3; k++) game.pos[k] = gu::rdf(p + 0x44 + 4 * k);
+            game.rotY = std::atan2(gu::rdf(p + 0xF48), gu::rdf(p + 0xF50));
+            static const u32 buffer = hleAlloc(kSaveSize);
+            std::memset(hostp(buffer), 0, kSaveSize);
+            gu::call(ctx, GU_SYM("fn_800AEEA8"), {p, 59, 0});  // flush live health, equipment and treasure to record
+            gu::call(ctx, GU_SYM("fn_80067108"), {buffer});
+            std::memcpy(game.save, hostp(buffer), kSaveSize);
+            std::memcpy(game.flags, hostp(kFlags), sizeof(game.flags));
+            u8 body[kGameWireSize];
+            send(Kind::Game, body, encodeGame(game, body, sizeof(body)), sPeer);
+            sNeedGame = false, sLastGame = now;
+            log("[online] sent host game: world %u map %u room %u", game.world, game.map, game.room);
+        }
+        return;
+    }
+    if (!sConnected) {
+        sJoinStage = JoinStage::Connecting;
+        sJoinedWorld = 0;
+        return;
+    }
+    if (sHaveGame && !sLoadRequested && settled() && rd32(kSceneId) != 0) {
+        sLoadingGame = sPendingGame;
+        sHaveGame = false, sLoadRequested = true;
+        sJoinedWorld = 0;
+        sJoinStage = JoinStage::Loading;
+        wr32(0x804D872C, 0);
+        wr32(kNextMap, sLoadingGame.map);  // teardown preserves the old current map until its resources are freed
+        wr32(kSceneControl + 4, 2);
+        wr32(kSceneId, 0);  // normal scene teardown and reload, including main-game -> main-game
+        log("[online] loading host game: world %u map %u room %u (no file select)",
+            sLoadingGame.world, sLoadingGame.map, sLoadingGame.room);
+        return;
+    }
+    if (sLoadRequested && inGame && coop::player(ctx, 0) && coop::player(ctx, 1)) {
+        sJoinedWorld = sLoadingGame.world;
+        sLoadRequested = false;
+        sJoinStage = JoinStage::Playing;
+        log("[online] entered player 1's game: world %u map %u room %u", sJoinedWorld, sLoadingGame.map, sLoadingGame.room);
+    }
+    if (!sLoadRequested && (!sJoinedWorld || !sHaveRemote || sRemote.world != sJoinedWorld || !inGame)) {
+        sJoinStage = JoinStage::Waiting;
+        if (std::chrono::duration<double>(now - sLastGame).count() > kHelloEvery) {
+            send(Kind::GameRequest, nullptr, 0, sPeer);
+            sLastGame = now;
+        }
+    } else if (!sLoadRequested) {
+        sJoinStage = JoinStage::Playing;
+    }
 }
 
-void setSessionMode(int mode) { sSessionMode = mode; }
+void beforeMapSetup(Ctx& ctx) {
+    if (!joiningMap()) return;
+    static const u32 buffer = hleAlloc(kSaveSize);
+    std::memcpy(hostp(buffer), sLoadingGame.save, kSaveSize);
+    gu::call(ctx, GU_SYM("fn_80067050"), {buffer});
+    // Player 2 shares progress bits and equipment; starting with player 1's treasure counters
+    // would count all the host's existing money/captures twice when mergeProgress runs.
+    constexpr u32 rec0 = 0x803D5CD0, rec1 = rec0 + 0x16C;
+    gu::call(ctx, GU_SYM("fn_80072B84"), {rec1});
+    wr32(rec1, rd32(rec0));
+    std::memcpy(hostp(rec1 + 0xD4), hostp(rec0 + 0xD4), 0x16C - 0xD4);
+    wr32(0x804D80C0, sLoadingGame.hidden);
+    wr32(kMap, sLoadingGame.map);
+}
+
+void onMapSetup(Ctx& ctx) {
+    if (ver::pal()) return;
+    if (localIndex() == 0) {
+        ++sWorld;
+        sHaveLocal = false, sLocalState.world = 0;
+    } else if (joiningMap()) {
+        std::memcpy(hostp(kFlags), sLoadingGame.flags, sizeof(sLoadingGame.flags));
+        for (int i = 0; i < 2; i++) {
+            if (const u32 p = coop::player(ctx, i)) {
+                for (int k = 0; k < 3; k++) gu::wrf(p + 0x44 + 4 * k, sLoadingGame.pos[k]);
+                gu::wrf(p + 0xF48, std::sin(sLoadingGame.rotY));
+                gu::wrf(p + 0xF50, std::cos(sLoadingGame.rotY));
+            }
+        }
+        sSpawnTool = 0, sSpawnEntry = -1;
+    }
+}
+
+void noteSpawnEntry(u32 tool, int entry) {
+    if (joiningMap()) sSpawnTool = tool, sSpawnEntry = entry;
+}
+void spawnValue(u32 tool, int entry, const char* field, u32 out) {
+    if (!joiningMap() || tool != sSpawnTool || entry != sSpawnEntry) return;
+    const int axis = !std::strcmp(field, "pos_x") ? 0 : !std::strcmp(field, "pos_y") ? 1 : !std::strcmp(field, "pos_z") ? 2 : -1;
+    if (axis >= 0) gu::wrf(out, sLoadingGame.pos[axis]);
+}
+
+HLE(fn_8000BA4C) {
+    if (guest() && loading()) { c.r[3] = 2; return; }
+    // A guest's save belongs to the host; never open a local save prompt.
+    if (guest() && rd32(0x804D80C4) == 5) wr32(0x804D80C4, 0);
+    callOriginal(c, "fn_8000BA4C");
+}
+
+void drawLoadingScreen() {
+    if (!loading()) return;
+    const auto* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(vp->Pos);
+    ImGui::SetNextWindowSize(vp->Size);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 1));
+    ImGui::Begin("Joining player 1##online-loading", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus);
+    auto* dl = ImGui::GetWindowDrawList();
+#ifndef LM_STATIC_MODULE
+    int w = 0, h = 0;
+    if (const ImTextureID texture = setup::loadingTexture(&w, &h); texture && w && h) {
+        const float scale = std::min(vp->Size.x / w, (vp->Size.y - 56) / h);
+        const ImVec2 a(vp->Pos.x + (vp->Size.x - w * scale) * 0.5f, vp->Pos.y + (vp->Size.y - 56 - h * scale) * 0.5f);
+        dl->AddImage(texture, a, ImVec2(a.x + w * scale, a.y + h * scale));
+    }
+#endif
+    const auto stage = sJoinStage.load();
+    const char* message = stage == JoinStage::Loading ? "Loading player 1's game..." : stage == JoinStage::Waiting ?
+        "Waiting for player 1 to enter the game..." : "Connecting to player 1...";
+    ImGui::SetCursorPos(ImVec2(12, std::max(12.0f, vp->Size.y - 54)));
+    ImGui::TextUnformatted(message);
+    ImGui::TextDisabled("%s", status());
+    ImGui::SetCursorPos(ImVec2(std::max(12.0f, vp->Size.x - 140), std::max(12.0f, vp->Size.y - 46)));
+    if (menu::Button("Back to start")) port::relaunch();
+    ImGui::End();
+    ImGui::PopStyleColor();
+}
+
+void setSessionMode(int mode) {
+    sSessionMode = mode;
+    sJoinStage = mode == 2 ? JoinStage::Connecting : JoinStage::Off;
+}
 
 bool readyToStart() {
     std::lock_guard lk(sCfgM);
@@ -452,8 +654,9 @@ bool drawHostJoin(bool withOff) {
 bool drawTab() {
     ImGui::TextWrapped("Play the 2-player mode with a friend on another PC: you are Luigi when you host, Mario "
                        "when you join. Both PCs need their own copy of the USA game. Over the internet, put both "
-                       "PCs in one Radmin VPN network and use the host's Radmin address (26.x.x.x). Changes take "
-                       "effect at once; the 2-player mode itself starts at the next map load.");
+                       "PCs in one Radmin VPN network and use the host's Radmin address (26.x.x.x). The host "
+                       "chooses a save. Joining loads that game directly; your own saves stay read-only. "
+                       "Both PCs need the same current build. Hosting enables two players at the next map load.");
     ImGui::Spacing();
     const bool changed = drawHostJoin(true);
     ImGui::Text("Status: %s", status());
