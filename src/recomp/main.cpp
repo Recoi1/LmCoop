@@ -354,6 +354,7 @@ int main(int argc, char* argv[]) {
     so.autoStart = hasArg(argc, argv, "--setup-auto");
     so.usDisc = argValue(argc, argv, "--us-disc");
     so.palDisc = argValue(argc, argv, "--pal-disc");
+    if (const char* c = std::getenv("LM_START_CHOICE")) so.startChoice = c;
     setup::LaunchInfo launch;
     if (!setup::run(so, launch)) {
         port::recovery::onExit();

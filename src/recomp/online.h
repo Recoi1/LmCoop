@@ -21,5 +21,11 @@ void frame();          // once per game-scene frame (fn_800112F8 hook, coop_fixe
 const char* status();  // "off", "waiting", "connected", "rejected: <why>", "disconnected"
 
 bool drawTab();        // Controls tab, "Online" sub-tab. True when a setting changed.
+// Host/Join, address, port and password (the Online tab and the LmCoop start menu). True when changed.
+bool drawHostJoin(bool withOff);
+bool readyToStart();   // Host or Join chosen and an address entered
+int configuredMode();  // the saved mode: 0 off, 1 host, 2 join
+// The LmCoop start menu's choice for this session (-1 = the saved settings, 0 off, 1 host, 2 join).
+void setSessionMode(int mode);
 
 }  // namespace recomp::online

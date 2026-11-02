@@ -90,12 +90,15 @@ const bool sRegistered = [] {
     return true;
 }();
 
+std::atomic<int> sSessionMode{-1};
+
 Config config() {
     Config c;
     {
         std::lock_guard lk(sCfgM);
         c = sCfg;
     }
+    if (const int m = sSessionMode.load(); m >= 0) c.mode = Mode(m);
     if (const char* v = std::getenv("LM_ONLINE"))
         c.mode = !std::strcmp(v, "host") ? Mode::Host : !std::strcmp(v, "join") ? Mode::Join : Mode::Off;
     if (const char* v = std::getenv("LM_ONLINE_ADDR")) c.address = v;
@@ -338,24 +341,33 @@ void frame() {
     }
 }
 
-bool drawTab() {
+void setSessionMode(int mode) { sSessionMode = mode; }
+
+bool readyToStart() {
+    std::lock_guard lk(sCfgM);
+    return sCfg.mode != Mode::Off && !sCfg.address.empty() && sCfg.port > 0 && sCfg.port <= 65535;
+}
+
+int configuredMode() {
+    std::lock_guard lk(sCfgM);
+    return int(sCfg.mode);
+}
+
+bool drawHostJoin(bool withOff) {
     bool changed = false;
     Config cfg;
     {
         std::lock_guard lk(sCfgM);
         cfg = sCfg;
     }
-    ImGui::TextWrapped("Play the 2-player mode with a friend on another PC: you are Luigi when you host, Mario "
-                       "when you join. Both PCs need their own copy of the USA game. Over the internet, put both "
-                       "PCs in one Radmin VPN network and use the host's Radmin address (26.x.x.x). Changes take "
-                       "effect at once; the 2-player mode itself starts at the next map load.");
-    ImGui::Spacing();
     int mode = int(cfg.mode);
-    changed |= ImGui::RadioButton("Off", &mode, 0);
+    if (withOff) {
+        changed |= ImGui::RadioButton("Off", &mode, 0);
+        ImGui::SameLine();
+    }
+    changed |= ImGui::RadioButton("Host (play as Luigi)", &mode, 1);
     ImGui::SameLine();
-    changed |= ImGui::RadioButton("Host (Luigi)", &mode, 1);
-    ImGui::SameLine();
-    changed |= ImGui::RadioButton("Join (Mario)", &mode, 2);
+    changed |= ImGui::RadioButton("Join (play as Mario)", &mode, 2);
     cfg.mode = Mode(mode);
     static char sAddr[64], sPw[64];
     static bool sInit = false;
@@ -373,11 +385,21 @@ bool drawTab() {
     ImGui::SetNextItemWidth(220.0f * ImGui::GetFontSize() / 13.0f);
     if (ImGui::InputText("Password", sPw, sizeof(sPw), ImGuiInputTextFlags_Password))
         cfg.password = sPw, changed = true;
-    ImGui::Text("Status: %s", status());
     if (changed) {
         std::lock_guard lk(sCfgM);
         sCfg = cfg;
     }
+    return changed;
+}
+
+bool drawTab() {
+    ImGui::TextWrapped("Play the 2-player mode with a friend on another PC: you are Luigi when you host, Mario "
+                       "when you join. Both PCs need their own copy of the USA game. Over the internet, put both "
+                       "PCs in one Radmin VPN network and use the host's Radmin address (26.x.x.x). Changes take "
+                       "effect at once; the 2-player mode itself starts at the next map load.");
+    ImGui::Spacing();
+    const bool changed = drawHostJoin(true);
+    ImGui::Text("Status: %s", status());
     return changed;
 }
 

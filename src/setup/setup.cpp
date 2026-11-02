@@ -8,6 +8,8 @@
 #include "setup/disc.h"
 #include "setup/hm_overlay.h"
 #include "setup/logo.h"
+#include "port/settings.h"
+#include "recomp/online.h"
 #include "setup/module_builder.h"
 
 #include <aurora/aurora.h>
@@ -24,6 +26,10 @@
 #include <optional>
 #include <thread>
 #include <vector>
+
+namespace recomp {
+void log(const char* fmt, ...);  // runtime.cpp
+}
 
 namespace setup {
 namespace {
@@ -185,7 +191,7 @@ void browse(int slot, const std::string& current) {
                            dir.empty() ? nullptr : dir.c_str(), false);
 }
 
-enum class Screen { Pick, Working, Shaders, Failed };
+enum class Screen { Pick, Working, Shaders, Failed, Start, Multiplayer };
 
 }  // namespace
 
@@ -232,6 +238,22 @@ bool run(const Options& opts, LaunchInfo& launch) {
     port::setPhase("setup");
     bool finished = false;
     int framesDrawn = 0;
+    // LmCoop start menu, every launch: Singleplayer (online off for this session) or Multiplayer.
+    // LM_START_CHOICE / --setup-auto pick without waiting (automated runs).
+    auto choose = [&](int mode) {
+        recomp::online::setSessionMode(mode);
+        recomp::log(mode == 0 ? "[start] singleplayer" : mode == 1 ? "[start] multiplayer host" : "[start] multiplayer join");
+        finished = true;
+    };
+    auto toStart = [&] {
+        const std::string& c = opts.startChoice;
+        if (c == "single" || (c.empty() && opts.autoStart)) return choose(0);
+        if (c == "host") return choose(1);
+        if (c == "join") return choose(2);
+        screen = Screen::Start;
+        recomp::log("[start] menu");
+    };
+    if (screen == Screen::Pick && showUi && !(slots[0].valid || slots[1].valid)) recomp::log("[setup] waiting for a disc");
     std::vector<std::string> dropped;  // the background precache is queued by the first frame (Aurora patch 0013)
     while (!finished) {
         port::heartbeat();
@@ -283,10 +305,10 @@ bool run(const Options& opts, LaunchInfo& launch) {
                 // compiling the shaders here, so the first game session runs as smoothly as later
                 // ones. Later launches compile whatever is missing in the background (precache.h).
                 else if ((showUi || !plan.empty()) && !recomp::precache::progress().finished()) screen = Screen::Shaders;
-                else finished = true;
+                else toStart();
             }
         }
-        if (screen == Screen::Shaders && recomp::precache::progress().finished()) finished = true;
+        if (screen == Screen::Shaders && recomp::precache::progress().finished()) toStart();
         if (finished) break;
         if (!aurora_begin_frame()) continue;
 
@@ -338,6 +360,44 @@ bool run(const Options& opts, LaunchInfo& launch) {
                 return false;
             }
             ImGui::PopStyleColor(2);
+        } else if (screen == Screen::Start) {
+            const ImVec2 big(ImGui::GetWindowWidth() * 0.3f, 44 * scale);
+            auto bigButton = [&](const char* label) {
+                ImGui::SetCursorPosX((ImGui::GetWindowWidth() - big.x) * 0.5f);
+                const bool hit = ImGui::Button(label, big);
+                ImGui::Dummy(ImVec2(0, 6 * scale));
+                return hit;
+            };
+            if (framesDrawn == 0 || ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+            if (bigButton("Singleplayer")) choose(0);
+            if (bigButton("Multiplayer")) screen = Screen::Multiplayer;
+            if (bigButton("Quit")) {
+                ImGui::End();
+                ImGui::PopStyleColor(2);
+                aurora_end_frame();
+                return false;
+            }
+        } else if (screen == Screen::Multiplayer) {
+            const float w = ImGui::GetWindowWidth() * 0.5f;
+            ImGui::SetCursorPosX((ImGui::GetWindowWidth() - w) * 0.5f);
+            ImGui::BeginGroup();
+            ImGui::PushItemWidth(w * 0.5f);
+            centeredText("Host: your friends join you, you play as Luigi. Join: you play as Mario on a friend's game.", grey);
+            ImGui::Dummy(ImVec2(0, 6 * scale));
+            recomp::online::drawHostJoin(false);
+            ImGui::PopItemWidth();
+            ImGui::EndGroup();
+            ImGui::Dummy(ImVec2(0, 12 * scale));
+            const ImVec2 half(ImGui::GetWindowWidth() * 0.14f, 40 * scale);
+            ImGui::SetCursorPosX(ImGui::GetWindowWidth() * 0.5f - half.x - 6 * scale);
+            ImGui::BeginDisabled(!recomp::online::readyToStart());
+            if (ImGui::Button("Start", half)) {
+                port::saveSettings();  // the host/join choice and address are remembered
+                choose(recomp::online::configuredMode());
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine(0, 12 * scale);
+            if (ImGui::Button("Back", half)) screen = Screen::Start;
         } else {
             std::string stage, error;
             float f = 0.0f;
