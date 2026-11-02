@@ -13,6 +13,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -56,13 +57,14 @@ const u8* gameSha1() {
     return port::dol::version() == port::dol::Version::GLME01 ? port::dol::versionSha1(port::dol::Version::GLME01) : nullptr;
 }
 
-// ---- Settings ([online]); LM_ONLINE, LM_ONLINE_ADDR, LM_ONLINE_PORT, LM_ONLINE_PASSWORD override ----
+// ---- Settings ([online]); LM_ONLINE, LM_ONLINE_ADDR, LM_ONLINE_PORT, LM_ONLINE_PASSWORD, LM_ONLINE_NAME override ----
 enum class Mode : int { Off, Host, Join };
 struct Config {
     Mode mode = Mode::Off;
     std::string address;  // host: the address to listen on; join: the host's address
     int port = 28555;
     std::string password;
+    std::string name = "Player";  // shown above this PC's player on the other PC
     bool operator==(const Config&) const = default;
 };
 std::mutex sCfgM;
@@ -79,11 +81,13 @@ void loadKey(const std::string& section, const std::string& key, const std::stri
     else if (key == "address") sCfg.address = value;
     else if (key == "port") sCfg.port = std::atoi(value.c_str());
     else if (key == "password") sCfg.password = value;
+    else if (key == "name") sCfg.name = value.substr(0, kNameSize - 1);
 }
 void saveConfig(std::ostream& out) {
     std::lock_guard lk(sCfgM);
     out << "[online]\nmode=" << (sCfg.mode == Mode::Host ? "host" : sCfg.mode == Mode::Join ? "join" : "off")
-        << "\naddress=" << sCfg.address << "\nport=" << sCfg.port << "\npassword=" << sCfg.password << '\n';
+        << "\naddress=" << sCfg.address << "\nport=" << sCfg.port << "\npassword=" << sCfg.password
+        << "\nname=" << sCfg.name << '\n';
 }
 const bool sRegistered = [] {
     port::addSettingsExtension({&resetConfig, &loadKey, &saveConfig});
@@ -104,6 +108,7 @@ Config config() {
     if (const char* v = std::getenv("LM_ONLINE_ADDR")) c.address = v;
     if (const char* v = std::getenv("LM_ONLINE_PORT")) c.port = std::atoi(v);
     if (const char* v = std::getenv("LM_ONLINE_PASSWORD")) c.password = v;
+    if (const char* v = std::getenv("LM_ONLINE_NAME")) c.name = std::string(v).substr(0, kNameSize - 1);
     return c;
 }
 
@@ -265,6 +270,10 @@ void receive() {
         sLastRecv = Clock::now();
         if (h.kind == Kind::Welcome || h.kind == Kind::Hello) sConnected = true;
         if (h.kind == Kind::State && decodeState(body, bn, sRemote)) sHaveRemote = true, sConnected = true, sRemoteAge = 0;
+        if (h.kind == Kind::State && sHaveRemote) {
+            static std::string sLastName;
+            if (sLastName != sRemote.name) sLastName = sRemote.name, log("[online] partner: %s", sRemote.name);
+        }
     }
 }
 
@@ -278,6 +287,48 @@ u32 remoteAge() { return sRemoteAge; }
 void setLocal(const PlayerState& s) {
     const PadState keep = sLocalState.pad;  // the pad comes from pad()
     sLocalState = s, sLocalState.pad = keep, sHaveLocal = true;
+    std::snprintf(sLocalState.name, kNameSize, "%s", sActive.name.c_str());
+}
+
+const char* remoteName() { return remote() ? sRemote.name : ""; }
+
+namespace {
+std::atomic<u32> sTag{0};  // name tag: bit 31 shown, x in bits 0-15, y in bits 16-30 (640x480 picture)
+std::mutex sTagNameM;
+std::string sTagName;
+}  // namespace
+
+void setNameTag(bool shown, int x, int y) {
+    if (shown && remote()) {
+        std::lock_guard lk(sTagNameM);
+        sTagName = sRemote.name;
+    }
+    sTag = shown ? 0x80000000u | (u32(y & 0x7FFF) << 16) | u32(x & 0xFFFF) : 0;
+}
+
+void drawNameTag() {
+    const u32 t = sTag.load();
+    if (!(t & 0x80000000u)) return;
+    std::string name;
+    {
+        std::lock_guard lk(sTagNameM);
+        name = sTagName;
+    }
+    if (name.empty()) return;
+    // The 3D view is drawn Hor+ (wider, same height), so a point of the game's 640x480 picture
+    // lands where the centered 4:3 picture would put it.
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    const float scale = vp->Size.x * 3 < vp->Size.y * 4 ? vp->Size.x / 640.0f : vp->Size.y / 480.0f;
+    const float gx = float(s16(u16(t & 0xFFFF))), gy = float((t >> 16) & 0x7FFF);
+    const float cx = vp->Pos.x + vp->Size.x * 0.5f + (gx - 320.0f) * scale;
+    const float cy = vp->Pos.y + vp->Size.y * 0.5f + (gy - 240.0f) * scale;
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    const float size = ImGui::GetFontSize() * 1.8f;
+    const ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, 0, name.c_str());
+    const ImVec2 p(cx - ts.x * 0.5f, cy - ts.y);
+    dl->AddRectFilled(ImVec2(p.x - 6, p.y - 2), ImVec2(p.x + ts.x + 6, p.y + ts.y + 2), IM_COL32(0, 0, 0, 120), 4.0f);
+    dl->AddText(ImGui::GetFont(), size, ImVec2(p.x + 1, p.y + 1), IM_COL32(0, 0, 0, 255), name.c_str());
+    dl->AddText(ImGui::GetFont(), size, p, IM_COL32(255, 255, 255, 255), name.c_str());
 }
 
 void pad(PADStatus* st) {
@@ -376,6 +427,12 @@ bool drawHostJoin(bool withOff) {
         std::snprintf(sPw, sizeof(sPw), "%s", cfg.password.c_str());
         sInit = true;
     }
+    static char sName[kNameSize];
+    static bool sNameInit = false;
+    if (!sNameInit) std::snprintf(sName, sizeof(sName), "%s", cfg.name.c_str()), sNameInit = true;
+    ImGui::SetNextItemWidth(220.0f * ImGui::GetFontSize() / 13.0f);
+    if (ImGui::InputText("Your name", sName, sizeof(sName)))
+        cfg.name = sName, changed = true;
     ImGui::SetNextItemWidth(220.0f * ImGui::GetFontSize() / 13.0f);
     if (ImGui::InputText(cfg.mode == Mode::Join ? "Host's address" : "This PC's address", sAddr, sizeof(sAddr)) ||
         ImGui::IsItemDeactivatedAfterEdit())

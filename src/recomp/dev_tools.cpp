@@ -2,6 +2,7 @@
 // model_viewer.cpp). Addresses are US GLME01 (VA() maps them to the European game's, see
 // recomp/version.h); how each was found: docs/UNUSED_CONTENT.md.
 #include "recomp/dev_tools.h"
+#include "recomp/online.h"
 
 #include "port/install.h"
 #include "port/settings.h"
@@ -454,6 +455,7 @@ void drawOverlays() {
     }
     viewer::window();
     unused2::drawOverlays();
+    online::drawNameTag();  // the other online player's name above their head
 }
 
 namespace {

@@ -12,20 +12,21 @@ using u16 = std::uint16_t;
 using u32 = std::uint32_t;
 using s8 = std::int8_t;
 
-constexpr u16 kProtocolVersion = 1;
+constexpr u16 kProtocolVersion = 2;  // 2: player names
 constexpr size_t kMaxPacket = 1200;
 constexpr u32 kMagic = 0x4F434D4C;  // "LMCO"
 constexpr float kMaxCoord = 1e5f;
 
 enum class Kind : u8 { Hello = 1, Welcome = 2, Reject = 3, State = 4, Bye = 5 };
 struct PadState { u16 buttons; s8 stickX, stickY, substickX, substickY; u8 triggerL, triggerR; };
-struct PlayerState { u32 frame; u16 map; u8 room; float pos[3]; float rotY; float vel[3]; u16 anim; u16 hp; PadState pad; };
+constexpr size_t kNameSize = 16;  // 15 characters and the terminator
+struct PlayerState { u32 frame; u16 map; u8 room; float pos[3]; float rotY; float vel[3]; u16 anim; u16 hp; PadState pad; char name[kNameSize]; };
 struct Hello { u16 version; u8 dolSha1[20]; u8 passwordHash[32]; };  // SHA-256 of the password
 struct Header { u32 magic; Kind kind; u32 seq; };
 
 constexpr size_t kHeaderWireSize = 4 + 1 + 4;
 constexpr size_t kPadWireSize = 2 + 4 + 2;
-constexpr size_t kStateWireSize = 4 + 2 + 1 + 12 + 4 + 12 + 2 + 2 + kPadWireSize;
+constexpr size_t kStateWireSize = 4 + 2 + 1 + 12 + 4 + 12 + 2 + 2 + kPadWireSize + kNameSize;
 constexpr size_t kHelloWireSize = 2 + 20 + 32;
 
 namespace wire {
@@ -90,6 +91,7 @@ inline size_t encodeState(const PlayerState& s, u8* out, size_t cap) {
     w.le(s.anim), w.le(s.hp);
     w.le(s.pad.buttons), w.le(u8(s.pad.stickX)), w.le(u8(s.pad.stickY)), w.le(u8(s.pad.substickX)),
         w.le(u8(s.pad.substickY)), w.le(s.pad.triggerL), w.le(s.pad.triggerR);
+    w.bytes(s.name, kNameSize);
     return w.ok ? w.n : 0;
 }
 
@@ -106,6 +108,11 @@ inline bool decodeState(const u8* body, size_t n, PlayerState& s) {
     t.pad.stickX = s8(r.le<u8>()), t.pad.stickY = s8(r.le<u8>());
     t.pad.substickX = s8(r.le<u8>()), t.pad.substickY = s8(r.le<u8>());
     t.pad.triggerL = r.le<u8>(), t.pad.triggerR = r.le<u8>();
+    r.bytes(t.name, kNameSize);
+    // Shown on screen: printable ASCII only, always terminated.
+    t.name[kNameSize - 1] = 0;
+    for (char& ch : t.name)
+        if (ch && (ch < 0x20 || ch > 0x7E)) ch = '?';
     const auto sane = [](float v, float lim) { return std::isfinite(v) && std::fabs(v) <= lim; };
     for (int i = 0; i < 3; i++)
         if (!sane(t.pos[i], kMaxCoord) || !sane(t.vel[i], kMaxCoord)) return false;

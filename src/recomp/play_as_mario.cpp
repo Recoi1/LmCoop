@@ -29,6 +29,7 @@
 // Docs: docs/UNUSED_CONTENT.md ("Play as Mario").
 #include "port/install.h"
 #include "port/settings.h"
+#include "recomp/online.h"
 #include "recomp/coop.h"
 #include "recomp/guest_util.h"
 #include "recomp/hle.h"
@@ -63,7 +64,7 @@ bool marioOn() {
 }
 bool marioP2On() {
     static const bool sEnv = envFlag("LM_MARIO_P2");
-    return sEnv || port::settings().unused2.marioP2;
+    return sEnv || port::settings().unused2.marioP2 || online::wanted();  // online: player 2 is always Mario
 }
 
 u16 be16(const u8* p) { return u16(p[0] << 8 | p[1]); }

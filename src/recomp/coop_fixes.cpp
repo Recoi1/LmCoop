@@ -356,6 +356,26 @@ void syncOnline(u32 p1, u32 p2) {
 }
 }  // namespace
 
+// The other player's name above their head: the point above them projected with the game's own
+// fn_80009148(view lbl_803A3820, &position, &x, &y) (0 = on screen; the training room's health
+// meter over Luigi is placed this way, fn_80041214), from the HUD pass after view 0 is drawn: the
+// view's matrices (+0x14C, +0x18C) are only current while the frame is drawn.
+constexpr float kNameHeight = 225.0f;  // above the actor's feet: clear of the cap
+void nameTag(Ctx& c) {
+    const int li = online::localIndex();
+    const u32 other = li < 0 ? 0 : sCached[1 - li];
+    if (!other || !online::remote() || sMapHidden || sEventHold || (rd32(other + 0x40) & 0x4000)) {
+        online::setNameTag(false, 0, 0);
+        return;
+    }
+    static const u32 sBuf = hleAlloc(16);  // position (12 bytes), then x and y (s16)
+    gu::wrf(sBuf, gu::rdf(other + 0x44));
+    gu::wrf(sBuf + 4, gu::rdf(other + 0x48) + kNameHeight);
+    gu::wrf(sBuf + 8, gu::rdf(other + 0x4C));
+    const bool off = gu::call(c, VA(0x80009148), {VA(0x803A3820), sBuf, sBuf + 12, sBuf + 14}) != 0;
+    online::setNameTag(!off, s16(rd16(sBuf + 12)), s16(rd16(sBuf + 14)));
+}
+
 // Game-scene view/camera update (fn_800112F8, once per game frame).
 u32 cachedPlayer(int idx) { return idx >= 0 && idx < 2 && active() ? sCached[idx] : 0; }
 
@@ -680,7 +700,7 @@ HLE(fn_8003E7B0) {
     const u32 views = rd32(kViewCount);
     if (views < 2) {
         callOriginal(c, "fn_8003E7B0");
-        if (view == 0) drawP2Meter(c, false);
+        if (view == 0) drawP2Meter(c, false), nameTag(c);
         return;
     }
     if (view == 0) return;  // drawn after the last view

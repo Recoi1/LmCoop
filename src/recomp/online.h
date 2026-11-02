@@ -13,6 +13,11 @@ int localIndex();      // 0 host, 1 client, -1 off
 bool connected();
 const PlayerState* remote();      // the newest state from the other PC, null before the first
 u32 remoteAge();       // game frames since that state arrived
+const char* remoteName();  // the other player's chosen name ("" before the first state)
+// Name tag above the other player (coop_fixes.cpp projects the head each game frame; x/y in the
+// game's 640x480 picture) and its drawing on the host (dev_tools.cpp overlays).
+void setNameTag(bool shown, int x, int y);
+void drawNameTag();
 void setLocal(const PlayerState& s);  // this PC's player, sent at 30 Hz
 // PADRead (hle_pad.cpp), after the script and skip filters: this PC's pad (port 1) drives the
 // local player's port, the other PC's last pad the remote player's; both read as connected.
