@@ -130,6 +130,18 @@ int viewPlayer() {
 void snapshot() {
     if (dir().empty()) return;
     const u32 f = frame::guestFrames();
+    // LM_RAM_SNAP=<frame>,<frame>,...: guest MEM1 (24 MB, offset = address - 0x80000000) to
+    // ram_<frame>.bin in the report folder, e.g. to find a menu's state by comparing snapshots.
+    if (const char* v = std::getenv("LM_RAM_SNAP")) {
+        for (const char* p = v; *p;) {
+            char* end = nullptr;
+            const unsigned long want = std::strtoul(p, &end, 10);
+            if (end == p) break;
+            if (want == f) std::ofstream(dir() / ("ram_" + std::to_string(f) + ".bin"), std::ios::binary)
+                               .write(reinterpret_cast<const char*>(g_mem), kMem1Size);
+            p = *end == ',' ? end + 1 : end;
+        }
+    }
     const bool reporting = std::getenv("LM_TEST_REPORT_DIR") != nullptr;
     if (reporting && f % 15) return;
     const u32 luigi = rd32(VA(0x803D48A0));
