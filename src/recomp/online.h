@@ -12,6 +12,7 @@ bool wanted();         // host or join configured
 int localIndex();      // 0 host, 1 client, -1 off
 bool connected();
 const PlayerState* remote();      // the newest state from the other PC, null before the first
+u32 remoteAge();       // game frames since that state arrived
 void setLocal(const PlayerState& s);  // this PC's player, sent at 30 Hz
 // PADRead (hle_pad.cpp), after the script and skip filters: this PC's pad (port 1) drives the
 // local player's port, the other PC's last pad the remote player's; both read as connected.

@@ -125,6 +125,7 @@ Clock::time_point sLastRecv, sLastHello;
 u32 sSeq = 0, sFrames = 0;
 PlayerState sLocalState{}, sRemote{};
 bool sHaveLocal = false, sHaveRemote = false;
+u32 sRemoteAge = 0;
 
 void setStatus(const std::string& s) {
     std::lock_guard lk(sStatusM);
@@ -260,7 +261,7 @@ void receive() {
         }
         sLastRecv = Clock::now();
         if (h.kind == Kind::Welcome || h.kind == Kind::Hello) sConnected = true;
-        if (h.kind == Kind::State && decodeState(body, bn, sRemote)) sHaveRemote = true, sConnected = true;
+        if (h.kind == Kind::State && decodeState(body, bn, sRemote)) sHaveRemote = true, sConnected = true, sRemoteAge = 0;
     }
 }
 
@@ -270,6 +271,7 @@ bool wanted() { return config().mode != Mode::Off; }
 int localIndex() { return sLocal.load(); }
 bool connected() { return sConnected.load(); }
 const PlayerState* remote() { return sHaveRemote && sConnected ? &sRemote : nullptr; }
+u32 remoteAge() { return sRemoteAge; }
 void setLocal(const PlayerState& s) {
     const PadState keep = sLocalState.pad;  // the pad comes from pad()
     sLocalState = s, sLocalState.pad = keep, sHaveLocal = true;
@@ -311,6 +313,7 @@ void frame() {
         if (!openSocket(c)) return;
     }
     if (sSock == kNoSocket || sRejected) return;
+    sRemoteAge++;
     receive();
     if (sRejected) return;
     const auto now = Clock::now();

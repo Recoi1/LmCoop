@@ -294,6 +294,68 @@ void holdP2(Ctx& c, u32 p1, u32 p2, bool on) {
 }
 }  // namespace
 
+// ---- Online -----------------------------------------------------------------------------
+// This PC's player is reported to the other PC each frame; the other PC's player, driven here by
+// its received pad (hle_pad.cpp), is pulled toward where that PC has it: hidden while the two PCs
+// are on different maps, snapped after a jump (teleport, door, warp), else eased in so that small
+// differences from packet timing never show as a jerk.
+namespace {
+constexpr float kSnapDistance = 300.0f, kEase = 0.25f;
+u32 sMapHidden = 0;  // the remote player actor hidden because the maps differ
+u32 sMapHiddenBits = 0;
+
+void syncOnline(u32 p1, u32 p2) {
+    const int li = online::localIndex();
+    if (li < 0) return;
+    const u32 me = li ? p2 : p1, other = li ? p1 : p2;
+    static float sLast[3] = {};
+    static u32 sLastActor = 0;
+    online::PlayerState s{};
+    s.frame = skip::guestFrames();
+    s.map = u16(rd32(kCurMapNo));
+    s.room = u8(roomOf(li));
+    for (int k = 0; k < 3; k++) {
+        s.pos[k] = gu::rdf(me + 0x44 + 4 * k);
+        s.vel[k] = sLastActor == me ? s.pos[k] - sLast[k] : 0.0f;
+        sLast[k] = s.pos[k];
+    }
+    sLastActor = me;
+    s.rotY = std::atan2(gu::rdf(me + 0xF48), gu::rdf(me + 0xF50));
+    s.hp = rd16(me + 0xFC);
+    online::setLocal(s);
+
+    const online::PlayerState* r = online::remote();
+    if (sMapHidden && sMapHidden != other) sMapHidden = 0;  // a new map made new actors
+    const bool apart = r && r->map != s.map;
+    if (apart && !sMapHidden) {
+        sMapHiddenBits = rd32(other + 0x40) & (0x4000 | 0x80);
+        wr32(other + 0x40, rd32(other + 0x40) | 0x4000 | 0x80);
+        sMapHidden = other;
+    } else if (!apart && sMapHidden) {
+        wr32(other + 0x40, rd32(other + 0x40) & ~((0x4000u | 0x80u) & ~sMapHiddenBits));
+        sMapHidden = 0;
+    }
+    if (!r || apart) return;
+    const float age = float(std::min<u32>(online::remoteAge(), 10));  // never extrapolate far
+    float target[3], d2 = 0;
+    for (int k = 0; k < 3; k++) {
+        target[k] = r->pos[k] + r->vel[k] * age;
+        const float e = target[k] - gu::rdf(other + 0x44 + 4 * k);
+        d2 += e * e;
+    }
+    const bool snap = d2 > kSnapDistance * kSnapDistance;
+    for (int k = 0; k < 3; k++) {
+        const float cur = gu::rdf(other + 0x44 + 4 * k);
+        gu::wrf(other + 0x44 + 4 * k, snap ? target[k] : cur + (target[k] - cur) * kEase);
+    }
+    if (snap) {
+        gu::wrf(other + 0xF48, std::sin(r->rotY));
+        gu::wrf(other + 0xF50, std::cos(r->rotY));
+        log("[online] other player snapped %.0f units (guest frame %u)", std::sqrt(d2), s.frame);
+    }
+}
+}  // namespace
+
 // Game-scene view/camera update (fn_800112F8, once per game frame).
 u32 cachedPlayer(int idx) { return idx >= 0 && idx < 2 && active() ? sCached[idx] : 0; }
 
@@ -323,6 +385,7 @@ HLE(fn_800112F8) {
         }
         if (p1 && p2 && !off(0x40)) mergeProgress(p1, p2);
         if (p1 && p2) retargetObjects(c);  // the player an object deals with (below)
+        if (p1 && p2 && !hold) syncOnline(p1, p2);
         // Player 2 downed while player 1 had nothing to share (1 health left): player 2 stays
         // down, and is revived with half of player 1's health once player 1 has more than 1 again
         // (a heart picked up). Player 1 being downed is the game's own game over.
