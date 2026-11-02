@@ -1,4 +1,4 @@
-LmCoop 1.1.9 - Windows x64
+LmCoop 1.1.10 - Windows x64
 =========================
 
 Download/source: https://github.com/Recoi1/LmCoop
