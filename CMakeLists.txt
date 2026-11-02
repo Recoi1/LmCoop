@@ -52,6 +52,38 @@ if (NOT _stamped STREQUAL _patch_ids)
 endif ()
 add_subdirectory(extern/aurora EXCLUDE_FROM_ALL)
 
+# ---- Internet play (docs/ONLINE_INTERNET.md) ---------------------------------------------------
+# libdatachannel (MPL-2.0: WebRTC data channels, ICE with STUN/TURN, DTLS) on MbedTLS (Apache-2.0),
+# plus nlohmann/json (MIT) for the matchmaking messages. All three are built from source and linked
+# statically; nothing is installed. MbedTLS needs DTLS-SRTP switched on (the lmcoop config header).
+include(FetchContent)
+set(_lm_skip_install ${CMAKE_SKIP_INSTALL_RULES})
+set(CMAKE_SKIP_INSTALL_RULES ON)
+set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(mbedtls GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls.git GIT_TAG mbedtls-3.6.7 GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(mbedtls)
+foreach (_t mbedcrypto mbedx509 mbedtls)
+    target_compile_definitions(${_t} PUBLIC "MBEDTLS_USER_CONFIG_FILE=\"${CMAKE_SOURCE_DIR}/packaging/mbedtls/lmcoop_config.h\"")
+endforeach ()
+add_library(lm_mbedtls INTERFACE)
+target_link_libraries(lm_mbedtls INTERFACE mbedtls mbedx509 mbedcrypto)
+add_library(MbedTLS::MbedTLS ALIAS lm_mbedtls)  # the name libdatachannel looks for
+set(USE_MBEDTLS ON CACHE BOOL "" FORCE)
+set(NO_MEDIA ON CACHE BOOL "" FORCE)
+set(NO_EXAMPLES ON CACHE BOOL "" FORCE)
+set(NO_TESTS ON CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+# The json submodule is skipped: its test data has paths too long for Windows checkouts.
+FetchContent_Declare(datachannel GIT_REPOSITORY https://github.com/paullouisageneau/libdatachannel.git
+    GIT_TAG v0.24.6 GIT_SHALLOW TRUE GIT_SUBMODULES "deps/libjuice deps/plog deps/usrsctp")
+FetchContent_MakeAvailable(datachannel)
+FetchContent_Declare(nlohmann_json URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+    URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d)
+FetchContent_MakeAvailable(nlohmann_json)
+set(CMAKE_SKIP_INSTALL_RULES ${_lm_skip_install})
+
 
 # ---- Shared game/library compile environment -------------------------------
 add_library(lm_game_headers INTERFACE)
@@ -131,7 +163,8 @@ function(lm_runtime_target tgt)
         ${CMAKE_SOURCE_DIR}/extern/aurora/include/dolphin ${CMAKE_SOURCE_DIR}/extern/aurora/include)
     target_compile_definitions(${tgt} PRIVATE TARGET_PC=1)
     target_link_libraries(${tgt} PRIVATE aurora::main aurora::core aurora::gx aurora::vi aurora::pad
-        aurora::si aurora::os aurora::dvd aurora::card)
+        aurora::si aurora::os aurora::dvd aurora::card
+        LibDataChannel::LibDataChannelStatic nlohmann_json::nlohmann_json)
     # Shipped shader/pipeline precache list (tools/pipelines/sweep.py; docs/RENDERING.md).
     add_custom_command(TARGET ${tgt} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/data/pipelines.bin $<TARGET_FILE_DIR:${tgt}>)

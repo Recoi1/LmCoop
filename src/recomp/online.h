@@ -4,6 +4,8 @@
 // LM_ONLINE* test aids. Off by default; nothing is opened while off.
 #include "recomp/online_protocol.h"
 
+#include <string>
+
 struct PADStatus;
 namespace recomp { struct Ctx; }
 

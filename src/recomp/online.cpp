@@ -4,10 +4,13 @@
 // password and runs the same game (GLME01). Both sides then exchange their player's state
 // (online_protocol.h) at 30 Hz; 5 s without a packet ends the session.
 #include "recomp/online.h"
+#include "recomp/online_config.h"
+#include "recomp/online_transport.h"
 
 #include "port/dol.h"
 #include "port/install.h"
 #include "port/settings.h"
+#include "port/update.h"
 #include "recomp/coop.h"
 #include "recomp/guest_util.h"
 #include "recomp/menu.h"
@@ -31,24 +34,6 @@
 #include <ostream>
 #include <string>
 
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#pragma comment(lib, "ws2_32.lib")
-using SocketHandle = SOCKET;
-constexpr SocketHandle kNoSocket = INVALID_SOCKET;
-#else
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-using SocketHandle = int;
-constexpr SocketHandle kNoSocket = -1;
-#endif
-
 namespace recomp {
 void log(const char* fmt, ...);  // runtime.cpp
 }
@@ -65,15 +50,6 @@ const u8* gameSha1() {
 }
 
 // ---- Settings ([online]); LM_ONLINE, LM_ONLINE_ADDR, LM_ONLINE_PORT, LM_ONLINE_PASSWORD, LM_ONLINE_NAME override ----
-enum class Mode : int { Off, Host, Join };
-struct Config {
-    Mode mode = Mode::Off;
-    std::string address;  // host: the address to listen on; join: the host's address
-    int port = 28555;
-    std::string password;
-    std::string name = "Player";  // shown above this PC's player on the other PC
-    bool operator==(const Config&) const = default;
-};
 std::mutex sCfgM;
 Config sCfg;
 
@@ -81,20 +57,35 @@ void resetConfig() {
     std::lock_guard lk(sCfgM);
     sCfg = Config{};
 }
+// One line per value: a newline inside a value would inject settings keys.
+std::string oneLine(std::string s, size_t max) {
+    s.erase(std::remove_if(s.begin(), s.end(), [](char ch) { return ch == '\n' || ch == '\r'; }), s.end());
+    return s.substr(0, max);
+}
 void loadKey(const std::string& section, const std::string& key, const std::string& value) {
     if (section != "online") return;
     std::lock_guard lk(sCfgM);
     if (key == "mode") sCfg.mode = value == "host" ? Mode::Host : value == "join" ? Mode::Join : Mode::Off;
+    else if (key == "net") sCfg.internet = value == "internet";
     else if (key == "address") sCfg.address = value;
     else if (key == "port") sCfg.port = std::atoi(value.c_str());
     else if (key == "password") sCfg.password = value;
     else if (key == "name") sCfg.name = value.substr(0, kNameSize - 1);
+    else if (key == "server") sCfg.signalUrl = oneLine(value, 200);
+    else if (key == "ice") sCfg.iceServers = oneLine(value, 400);
+    else if (key == "lobby_name") sCfg.lobbyName = oneLine(value, 24);
+    else if (key == "public") sCfg.publicLobby = value == "1";
+    else if (key == "code") sCfg.inviteCode = oneLine(value, 12);
+    else if (key == "lobby_id") sCfg.lobbyId = oneLine(value, 40);
 }
 void saveConfig(std::ostream& out) {
     std::lock_guard lk(sCfgM);
     out << "[online]\nmode=" << (sCfg.mode == Mode::Host ? "host" : sCfg.mode == Mode::Join ? "join" : "off")
+        << "\nnet=" << (sCfg.internet ? "internet" : "direct")
         << "\naddress=" << sCfg.address << "\nport=" << sCfg.port << "\npassword=" << sCfg.password
-        << "\nname=" << sCfg.name << '\n';
+        << "\nname=" << sCfg.name << "\nserver=" << sCfg.signalUrl << "\nice=" << sCfg.iceServers
+        << "\nlobby_name=" << sCfg.lobbyName << "\npublic=" << (sCfg.publicLobby ? 1 : 0)
+        << "\ncode=" << sCfg.inviteCode << "\nlobby_id=" << sCfg.lobbyId << '\n';
 }
 const bool sRegistered = [] {
     port::addSettingsExtension({&resetConfig, &loadKey, &saveConfig});
@@ -116,23 +107,28 @@ Config config() {
     if (const char* v = std::getenv("LM_ONLINE_PORT")) c.port = std::atoi(v);
     if (const char* v = std::getenv("LM_ONLINE_PASSWORD")) c.password = v;
     if (const char* v = std::getenv("LM_ONLINE_NAME")) c.name = std::string(v).substr(0, kNameSize - 1);
+    // Internet test aids: LM_ONLINE_NET=internet, LM_ONLINE_SERVER=ws://..., LM_ONLINE_CODE, LM_ONLINE_LOBBY (name),
+    // LM_ONLINE_PUBLIC=1, LM_ONLINE_ICE.
+    if (const char* v = std::getenv("LM_ONLINE_NET")) c.internet = !std::strcmp(v, "internet");
+    if (const char* v = std::getenv("LM_ONLINE_SERVER")) c.signalUrl = v;
+    if (const char* v = std::getenv("LM_ONLINE_CODE")) c.inviteCode = v;
+    if (const char* v = std::getenv("LM_ONLINE_LOBBY")) c.lobbyName = oneLine(v, 24);
+    if (const char* v = std::getenv("LM_ONLINE_PUBLIC")) c.publicLobby = !std::strcmp(v, "1");
+    if (const char* v = std::getenv("LM_ONLINE_ICE")) c.iceServers = v;
     return c;
 }
 
 // ---- Session (guest thread; status read by the menu) ------------------------------------
-struct Peer {
-    sockaddr_in addr{};
-    bool operator==(const Peer& o) const {
-        return addr.sin_addr.s_addr == o.addr.sin_addr.s_addr && addr.sin_port == o.addr.sin_port;
-    }
-};
+using Peer = PeerId;
 std::mutex sStatusM;
 std::string sStatus = "off";
+std::string sInvite;  // internet host: the code to share (under sStatusM)
+std::string sLastNetText;  // the transport's last progress line shown in the status
 std::atomic<int> sLocal{-1};
 std::atomic<bool> sConnected{false};
 
-SocketHandle sSock = kNoSocket;
-Config sActive;  // the config the socket was opened with
+std::unique_ptr<Transport> sNet;  // null while off or after a final failure
+Config sActive;  // the config the transport was opened with
 bool sRejected = false;
 Peer sPeer;
 bool sHavePeer = false;
@@ -168,14 +164,12 @@ void setStatus(const std::string& s) {
 }
 
 void closeSocket() {
-    if (sSock != kNoSocket) {
-#ifdef _WIN32
-        closesocket(sSock);
-#else
-        ::close(sSock);
-#endif
+    sNet.reset();
+    sLastNetText.clear();
+    {
+        std::lock_guard lk(sStatusM);
+        sInvite.clear();
     }
-    sSock = kNoSocket;
     sHavePeer = sHaveRemote = sRejected = false;
     sHaveLocal = sHaveGame = sNeedGame = sLoadRequested = false;
     sSpawnTool = 0, sSpawnEntry = -1;
@@ -192,52 +186,35 @@ std::array<u8, 32> passwordHash(const std::string& pw) {
     return out;
 }
 
+NetConfig netConfig(const Config& c) {
+    NetConfig n;
+    n.internet = c.internet, n.host = c.mode == Mode::Host, n.address = c.address, n.port = c.port;
+    n.signalUrl = c.signalUrl, n.iceServers = c.iceServers, n.lobbyName = c.lobbyName;
+    n.publicLobby = c.publicLobby, n.hasPassword = !c.password.empty();
+    n.inviteCode = c.inviteCode, n.lobbyId = c.lobbyId;
+    n.build = port::update::buildVersion();  // the server only pairs identical builds
+    return n;
+}
+
 bool openSocket(const Config& c) {
-#ifdef _WIN32
-    static const bool sWsa = [] {
-        WSADATA d;
-        return WSAStartup(MAKEWORD(2, 2), &d) == 0;
-    }();
-    if (!sWsa) return setStatus("error: Winsock unavailable"), false;
-#endif
-    sockaddr_in a{};
-    a.sin_family = AF_INET;
-    if (c.port <= 0 || c.port > 65535) return setStatus("error: port must be 1-65535"), false;
-    if (c.mode == Mode::Host) {
-        // The host listens on the chosen address only (never every interface).
-        if (c.address.empty() || inet_pton(AF_INET, c.address.c_str(), &a.sin_addr) != 1)
-            return setStatus("error: host needs this PC's address (e.g. its Radmin VPN 26.x.x.x)"), false;
-        a.sin_port = htons(u16(c.port));
-    } else {
-        if (c.address.empty() || inet_pton(AF_INET, c.address.c_str(), &sPeer.addr.sin_addr) != 1)
-            return setStatus("error: enter the host's address"), false;
-        sPeer.addr.sin_family = AF_INET;
-        sPeer.addr.sin_port = htons(u16(c.port));
-        sHavePeer = true;
+    sNet = c.internet ? makeRtcTransport(netConfig(c)) : makeUdpTransport(netConfig(c));
+    if (const NetStatus s = sNet->status(); s.failed) {
+        setStatus(s.text);
+        sNet.reset();
+        return false;
     }
-    sSock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (sSock == kNoSocket) return setStatus("error: no UDP socket"), false;
-#ifdef _WIN32
-    u_long nb = 1;
-    ioctlsocket(sSock, FIONBIO, &nb);
-#else
-    fcntl(sSock, F_SETFL, fcntl(sSock, F_GETFL) | O_NONBLOCK);
-#endif
-    if (bind(sSock, reinterpret_cast<sockaddr*>(&a), sizeof(a)) != 0) {
-        closeSocket();
-        return setStatus("error: cannot listen on " + c.address + ":" + std::to_string(c.port)), false;
-    }
+    if (c.mode == Mode::Join) sPeer = sNet->initialPeer(), sHavePeer = sPeer != 0;
     sLastRecv = sLastHello = Clock::now() - std::chrono::seconds(1);
-    setStatus(c.mode == Mode::Host ? "waiting on " + c.address + ":" + std::to_string(c.port)
-                                   : "waiting: joining " + c.address + ":" + std::to_string(c.port));
+    sLastNetText = sNet->status().text;
+    setStatus(sLastNetText);
     return true;
 }
 
+// Control, game and event messages must arrive; only the 30 Hz player state may be lost.
 void send(Kind kind, const u8* body, size_t n, const Peer& to) {
     u8 buf[kMaxPacket];
     const size_t len = encode(Header{kMagic, kind, sSeq++}, body, n, buf, sizeof(buf));
-    if (len) sendto(sSock, reinterpret_cast<const char*>(buf), int(len), 0,
-                    reinterpret_cast<const sockaddr*>(&to.addr), sizeof(to.addr));
+    if (len && sNet) sNet->send(to, buf, len, kind != Kind::State);
 }
 
 void sendHello() {
@@ -265,16 +242,14 @@ std::string checkHello(const u8* body, size_t n) {
 void receive() {
     u8 buf[kMaxPacket + 1];
     for (int i = 0; i < 64; i++) {  // bounded per frame
-        sockaddr_in from{};
-        socklen_t fl = sizeof(from);
-        const int n = int(recvfrom(sSock, reinterpret_cast<char*>(buf), int(sizeof(buf)), 0,
-                                   reinterpret_cast<sockaddr*>(&from), &fl));
-        if (n <= 0) return;
+        PeerId from = 0;
+        const size_t n = sNet->receive(from, buf, sizeof(buf));
+        if (n == 0) return;
         Header h{};
         const u8* body = nullptr;
         size_t bn = 0;
-        if (!decode(buf, size_t(n), h, body, bn)) continue;
-        const Peer p{from};
+        if (!decode(buf, n, h, body, bn)) continue;
+        const Peer p = from;
         if (sActive.mode == Mode::Host) {
             if (h.kind == Kind::Hello && (!sHavePeer || p == sPeer)) {
                 if (const std::string why = checkHello(body, bn); !why.empty()) {
@@ -419,7 +394,7 @@ void frame(Ctx& ctx) {
         setStatus("error: online co-op needs the USA game (GLME01)");
         return;
     }
-    if (!(c == sActive) || (c.mode != Mode::Off && sSock == kNoSocket && !sRejected && sStatus.rfind("error", 0) != 0)) {
+    if (!(c == sActive) || (c.mode != Mode::Off && !sNet && !sRejected && sStatus.rfind("error", 0) != 0)) {
         if (!(c == sActive)) closeSocket();
         sActive = c;
         sLocal = c.mode == Mode::Host ? 0 : c.mode == Mode::Join ? 1 : -1;
@@ -427,7 +402,19 @@ void frame(Ctx& ctx) {
         if (c.mode == Mode::Off) return setStatus("off");
         if (!openSocket(c)) return;
     }
-    if (sSock == kNoSocket || sRejected) return;
+    if (!sNet || sRejected) return;
+    // The internet transport negotiates in the background; its progress and final failures show here.
+    const NetStatus net = sNet->status();
+    if (net.failed && !sConnected) {
+        setStatus(net.text);  // "error: ..." (the session does not retry by itself)
+        sNet.reset();
+        return;
+    }
+    if (!sConnected && net.text != sLastNetText) setStatus(net.text), sLastNetText = net.text;
+    {
+        std::lock_guard lk(sStatusM);
+        sInvite = net.inviteCode;
+    }
     sRemoteAge++;
     receive();
     if (sRejected) return;
@@ -440,8 +427,7 @@ void frame(Ctx& ctx) {
         setStatus("disconnected (no packets for 5 s)");
         return;
     }
-    if (sConnected) setStatus("connected to " + std::string(inet_ntoa(sPeer.addr.sin_addr)) + ":" +
-                              std::to_string(ntohs(sPeer.addr.sin_port)));
+    if (sConnected) setStatus("connected to " + sNet->describe(sPeer));
     if (!sConnected && sActive.mode == Mode::Join &&
         std::chrono::duration<double>(now - sLastHello).count() > kHelloEvery) {
         sendHello();
