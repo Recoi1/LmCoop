@@ -20,6 +20,7 @@
 #include "recomp/online.h"
 #include "recomp/ui_scale.h"
 #include "recomp/mouse_aim.h"
+#include "recomp/mouse_look.h"
 #include "recomp/version.h"
 #include <aurora/aurora.h>
 
@@ -1700,6 +1701,13 @@ void afterRead(PADStatus* status) {
     sMouseGameplay = interactive && mode == 0;
     sMouseCamera = interactive && mode == 4;
     if (sMouseConfirm && sPorts[0].keyboard) status[0].button |= PAD_BUTTON_A;
+    // Walking around, horizontal mouse motion turns Luigi through mouse_look's steering (1:1, no
+    // dead zone or snap-back); vertical motion and the GBH search camera keep the stick mapping.
+    float turnPixels = 0;
+    if (sMouseRelative && sMouseGameplay && status[0].err == PAD_ERR_NONE) {
+        turnPixels = sMouse.x * sCfg.mouseSensitivity;
+        sMouse.x = 0;
+    }
     if (sMouseRelative && (sMouseGameplay || sMouseCamera) && status[0].err == PAD_ERR_NONE) {
         const bool moved = sMouse.x != 0 || sMouse.y != 0;
         const auto aim = sMouse.take(sCfg.mouseSensitivity);
@@ -1708,6 +1716,7 @@ void afterRead(PADStatus* status) {
             status[0].substickY = s8(aim[1]);
         }
     } else sMouse.clear();
+    if (turnPixels != 0) mouselook::addPixels(turnPixels);
     for (int port = 0; port < PAD_MAX_CONTROLLERS; port++) {
         auto& st = sPorts[port];
         PADStatus& s = status[port];
