@@ -25,7 +25,7 @@ void onModelLoaded(Ctx& c, u32 entry);   // after fn_80061C94 (model registry en
 
 // play_as_mario.cpp
 void marioModelLoaded(Ctx& c, u32 entry);
-void marioFrame(Ctx& c);
+void marioFrame(Ctx& c, u32 skinningModel = 0);
 bool isMarioModel(u32 mdl);  // the Play-as-Mario model copy (silly.cpp)
 // luigi_states.cpp
 void statesFrame(Ctx& c);

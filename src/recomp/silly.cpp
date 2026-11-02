@@ -704,6 +704,7 @@ void addJointScaler(JointScaler fn) {
 }
 
 HLE(fn_80058850) {
+    unused2::marioFrame(c, c.r[3]);  // Select the player model before building its envelope matrices.
     const bool luigiMods = jointModsActive();
     if ((luigiMods || !scalers().empty()) && !viewer::isOpen()) {
         const u32 obj = c.r[3];

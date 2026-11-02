@@ -994,6 +994,10 @@ as Luigi's own, so the body model is the only Mario-specific asset. `bmario.mdl`
 - Mario as player 2: the 2-player mode's player 2 S3DModel (+4 of the actor, model at +4) is
   pointed at the Mario copy each frame (the S3DModel arrays are sized from Luigi's larger
   joint+envelope count, so the swap is safe).
+  LmCoop 1.1.7 also selects that copy before the envelope pass (`fn_80058850`). Switching only
+  at frame end could leave Luigi's skinning weights attached to Mario's meshes, stretching
+  his clothing and body. In local host/join tests the 13 Mario envelopes now match the
+  weighted joint/bind-pose calculation to floating-point precision; Luigi's 55 remain correct.
 - Verified: `mario_nursery_back.png`, `mario_nursery_front.png` (Poltergust, flashlight, hose and
   Game Boy Horror line up), `mario_player2.png` (`LM_COOP=1 LM_MARIO_P2=1`). Test aids:
   `LM_PLAY_AS_MARIO=1`, `LM_MARIO_P2=1`.

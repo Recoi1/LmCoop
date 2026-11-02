@@ -187,15 +187,16 @@ HLE(fn_8005C760) {
     callOriginal(c, "fn_8005C760");
 }
 
-// Every frame: player 2's model in the 2-player mode.
-void marioFrame(Ctx& c) {
+// Every frame and before skinning: player 2 must use Mario's envelope weights, not Luigi's.
+// skinningModel limits a skinning call to its own S3DModel; 0 updates the player at frame end.
+void marioFrame(Ctx& c, u32 skinningModel) {
     static bool sApplied = false;
-    const bool want = marioP2On() && coop::active();
+    const bool want = coop::active() && marioP2On();
     if (!want && !sApplied) return;
     const u32 p2 = coop::active() ? coop::player(c, 1) : 0;
     if (!p2) return;
     const u32 s3d = rd32(p2 + 4);
-    if (!gu::inMem1(s3d)) return;
+    if (!gu::inMem1(s3d) || (skinningModel && skinningModel != s3d)) return;
     const u32 cur = rd32(s3d + 4);
     if (want) {
         if (isMarioCopy(cur)) return;
