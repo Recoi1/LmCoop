@@ -19,6 +19,8 @@ enum class Version { Unknown, GLME01, GLMP01 };
 // Identifies a main.dol image by SHA-1 (Unknown if it is not a supported retail build).
 Version identify(const uint8_t* dol, size_t size);
 std::array<uint8_t, 20> sha1(const uint8_t* data, size_t len);
+// The SHA-1 a supported version's main.dol has (null for Unknown).
+const uint8_t* versionSha1(Version v);
 
 // Locates and validates the DOL of the currently opened disc. Must be called
 // after aurora_dvd_open(). Returns the detected version (Unknown if the DOL

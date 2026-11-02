@@ -309,7 +309,9 @@ HLE(fn_800112F8) {
     }
     if (fixes()) {
         const u32 p1 = player(c, 0), p2 = player(c, 1);
-        const bool hold = p1 && p2 && !off(1) && eventControl(p1);
+        // Online host without a client: player 2 is set aside like during an event.
+        const bool alone = online::localIndex() == 0 && !online::connected();
+        const bool hold = p1 && p2 && !off(1) && (eventControl(p1) || alone);
         if (hold != sEventHold) {
             holdP2(c, p1, p2, hold);
             log("[coop] event %s: player 2 %s (guest frame %u)", hold ? "took control" : "ended",

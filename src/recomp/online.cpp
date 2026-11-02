@@ -9,6 +9,7 @@
 #include "port/settings.h"
 #include "recomp/menu.h"
 
+#include <dolphin/pad.h>
 #include <imgui.h>
 
 #include <algorithm>
@@ -50,9 +51,10 @@ namespace {
 using Clock = std::chrono::steady_clock;
 constexpr double kTimeout = 5.0, kHelloEvery = 0.5;
 constexpr int kStateEvery = 2;  // guest frames (60 Hz) per state packet: 30 Hz
-// GLME01 revision 0 main.dol (port::dol::identify accepts only this one for the US game).
-constexpr u8 kGlme01Sha1[20] = {0x77, 0xd4, 0x92, 0x25, 0xe7, 0xd2, 0x8b, 0x97, 0x77, 0x91,
-                                0x6c, 0xbd, 0xe5, 0x80, 0x93, 0x45, 0xc5, 0x70, 0xec, 0xbc};
+// Both PCs must run the US game (GLME01 revision 0): its main.dol SHA-1 goes in the hello.
+const u8* gameSha1() {
+    return port::dol::version() == port::dol::Version::GLME01 ? port::dol::versionSha1(port::dol::Version::GLME01) : nullptr;
+}
 
 // ---- Settings ([online]); LM_ONLINE, LM_ONLINE_ADDR, LM_ONLINE_PORT, LM_ONLINE_PASSWORD override ----
 enum class Mode : int { Off, Host, Join };
@@ -203,7 +205,7 @@ void send(Kind kind, const u8* body, size_t n, const Peer& to) {
 void sendHello() {
     Hello h{};
     h.version = kProtocolVersion;
-    if (port::dol::version() == port::dol::Version::GLME01) std::memcpy(h.dolSha1, kGlme01Sha1, 20);
+    if (const u8* sha = gameSha1()) std::memcpy(h.dolSha1, sha, 20);
     const auto pw = passwordHash(sActive.password);
     std::memcpy(h.passwordHash, pw.data(), 32);
     u8 body[kHelloWireSize];
@@ -215,7 +217,7 @@ std::string checkHello(const u8* body, size_t n) {
     Hello h{};
     if (!decodeHello(body, n, h)) return "bad hello";
     if (h.version != kProtocolVersion) return "version";
-    if (port::dol::version() != port::dol::Version::GLME01 || std::memcmp(h.dolSha1, kGlme01Sha1, 20))
+    if (const u8* sha = gameSha1(); !sha || std::memcmp(h.dolSha1, sha, 20))
         return "game (both need the USA disc, GLME01)";
     const auto pw = passwordHash(sActive.password);
     if (std::memcmp(h.passwordHash, pw.data(), 32)) return "password";
@@ -239,10 +241,11 @@ void receive() {
             if (h.kind == Kind::Hello && (!sHavePeer || p == sPeer)) {
                 if (const std::string why = checkHello(body, bn); !why.empty()) {
                     send(Kind::Reject, reinterpret_cast<const u8*>(why.data()), why.size(), p);
-                    log("[online] refused a join: %s", why.c_str());
+                    static u32 sRefused = 0;  // junk must not flood the log: the first 5, then every 1000th
+                    if (++sRefused <= 5 || sRefused % 1000 == 0) log("[online] refused a join (%u): %s", sRefused, why.c_str());
                     continue;
                 }
-                sPeer = p, sHavePeer = true, sLastRecv = Clock::now();
+                sPeer = p, sHavePeer = true, sLastRecv = Clock::now(), sConnected = true;
                 send(Kind::Welcome, nullptr, 0, p);
                 continue;
             }
@@ -267,7 +270,29 @@ bool wanted() { return config().mode != Mode::Off; }
 int localIndex() { return sLocal.load(); }
 bool connected() { return sConnected.load(); }
 const PlayerState* remote() { return sHaveRemote && sConnected ? &sRemote : nullptr; }
-void setLocal(const PlayerState& s) { sLocalState = s, sHaveLocal = true; }
+void setLocal(const PlayerState& s) {
+    const PadState keep = sLocalState.pad;  // the pad comes from pad()
+    sLocalState = s, sLocalState.pad = keep, sHaveLocal = true;
+}
+
+void pad(PADStatus* st) {
+    const int li = localIndex();
+    if (li < 0) return;
+    const PADStatus mine = st[0];
+    sLocalState.pad = {mine.button, mine.stickX, mine.stickY, mine.substickX, mine.substickY,
+                       mine.triggerLeft, mine.triggerRight};
+    st[li] = mine;
+    PADStatus& other = st[1 - li];
+    other = PADStatus{};
+    if (const PlayerState* r = remote()) {
+        const PadState& p = r->pad;
+        other.button = p.buttons, other.stickX = p.stickX, other.stickY = p.stickY;
+        other.substickX = p.substickX, other.substickY = p.substickY;
+        other.triggerLeft = p.triggerL, other.triggerRight = p.triggerR;
+        other.analogA = other.analogB = 0;
+    }
+    st[0].err = st[1].err = PAD_ERR_NONE;
+}
 
 const char* status() {
     static thread_local std::string sCopy;
@@ -305,8 +330,8 @@ void frame() {
     }
     if (sConnected && ++sFrames % kStateEvery == 0) {
         u8 body[kStateWireSize];
-        // Nothing to report before the player exists: an empty state still keeps the session alive.
-        send(Kind::State, body, encodeState(sHaveLocal ? sLocalState : PlayerState{}, body, sizeof(body)), sPeer);
+        // Before setLocal has a player, the state carries only the pad (filled by pad()).
+        send(Kind::State, body, encodeState(sLocalState, body, sizeof(body)), sPeer);
     }
 }
 

@@ -79,6 +79,10 @@ constexpr uint8_t kShaGLMP01[20] = {0xa1, 0xe2, 0xbd, 0x82, 0x81, 0x37, 0x87, 0x
 
 }  // namespace
 
+const uint8_t* versionSha1(Version v) {
+    return v == Version::GLME01 ? kShaGLME01 : v == Version::GLMP01 ? kShaGLMP01 : nullptr;
+}
+
 Version identify(const uint8_t* dol, size_t size) {
     if (!dol || size < 0x100) return Version::Unknown;
     const auto digest = sha1(dol, size);

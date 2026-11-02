@@ -146,8 +146,18 @@ void snapshot() {
       << ",\"equipment\":" << (valid ? rd16(luigi + 0x792) : 0)
       << ",\"archive\":" << (valid ? (rd32(luigi + 0xB4) & 0xFF) : -1)
       << ",\"mode\":" << rd32(VA(0x804D80C4))
-      << ",\"views\":" << rd32(VA(0x804CFF90)) << ",\"view_player\":" << viewPlayer()
-      << ",\"function_total\":" << (g_module ? g_module->funcCount : 0) << "}\n";
+      << ",\"views\":" << rd32(VA(0x804CFF90)) << ",\"view_player\":" << viewPlayer();
+    if (coop::cachedPlayer(1)) {  // 2-player mode: both players' positions and actor flags
+        s << ",\"players\":[";
+        for (int i = 0; i < 2; i++) {
+            const u32 p = coop::cachedPlayer(i);
+            s << (i ? ",[" : "[");
+            for (int k = 0; k < 3; k++) s << (k ? "," : "") << (p ? rdf32(p + 0x44 + 4 * k) : 0);
+            s << "]";
+        }
+        s << "],\"player_flags\":[" << rd32(coop::cachedPlayer(0) + 0x40) << "," << rd32(coop::cachedPlayer(1) + 0x40) << "]";
+    }
+    s << ",\"function_total\":" << (g_module ? g_module->funcCount : 0) << "}\n";
     std::ofstream(dir() / "status.json") << s.str();
     if (reporting) {
         std::ofstream(dir() / "observations.jsonl", std::ios::app) << s.str();
