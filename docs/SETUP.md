@@ -203,22 +203,22 @@ error in play.
 
 ## Updates
 
-`src/port/update.cpp` (UI in `src/recomp/menu.cpp`, F1 > Game > *Updates*). The player always
+`src/port/update.cpp` (UI on the LmCoop start screen, shared controls in `src/recomp/menu.cpp`). The player always
 clicks: nothing is downloaded or replaced on its own.
 
 1. **Version.** The CMake project version (`project(lmport ... VERSION x.y[.z])`) is compiled into
-   `update.cpp` as `LM_VERSION` and shown in F1 > Game. Versions compare numerically by
+   `update.cpp` as `LM_VERSION` and shown in the start screen's bottom-right corner. Versions compare numerically by
    component, missing components are 0: 1.1 > 1.0.1 > 1.0 = 1.0.0.
 2. **Check.** In the background at startup (setting *Check for updates at startup*,
    `[updates] check_at_startup`, default on) and with the *Check for updates* button: one
-   unauthenticated `GET https://api.github.com/repos/rob646464/luigis-mansion-recompiled/releases/latest`
+   unauthenticated `GET https://api.github.com/repos/Recoi1/LmCoop/releases/latest`
    (User-Agent `LuigisMansionRecompiled/<ver> (updater)`, 8 s connect/receive timeouts, 15 s total).
    Drafts and prereleases are ignored. Offline, an unknown host, HTTP errors and the rate limit
    (403 with `x-ratelimit-remaining: 0` or 429; the message names the reset time) end as a line
-   in the menu and the log, nothing else. The startup check is skipped in build trees (no
-   `llvm/bin/clang` next to the exe) and with `LM_UPDATE_CHECK=0`.
-3. **Notice.** A newer release shows a small corner notice for 12 s once per session (takes no
-   input) and, in F1 > Game, "Update available: vX.Y" with the release notes (markdown reduced to
+   on the start screen and in the log, nothing else. `LM_UPDATE_CHECK=0` disables the startup check.
+   Build trees can check; only packaged release folders can install an update.
+3. **Notice.** A newer release changes the start screen's bottom-right update status. Click it
+   to open Updates with the release notes (markdown reduced to
    headings, bullets and text) and *Download and install*, *Skip this version* (remembered as
    `[updates] skip_version=<tag>`: no notice for that tag; *Check for updates* still shows it) and
    *Later* (hidden until the next start).

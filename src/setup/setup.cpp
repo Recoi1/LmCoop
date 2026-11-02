@@ -9,6 +9,8 @@
 #include "setup/hm_overlay.h"
 #include "setup/logo.h"
 #include "port/settings.h"
+#include "port/update.h"
+#include "recomp/menu.h"
 #include "recomp/online.h"
 #include "setup/module_builder.h"
 
@@ -191,12 +193,13 @@ void browse(int slot, const std::string& current) {
                            dir.empty() ? nullptr : dir.c_str(), false);
 }
 
-enum class Screen { Pick, Working, Shaders, Failed, Start, Multiplayer };
+enum class Screen { Pick, Working, Shaders, Failed, Start, Multiplayer, Settings, Updates };
 
 }  // namespace
 
 bool run(const Options& opts, LaunchInfo& launch) {
     recomp::ui::install(recomp::ui::Context::Setup);
+    port::update::startupCheck();
     port::loadInstall();
     auto& inst = port::install();
     Slot slots[2];
@@ -216,6 +219,7 @@ bool run(const Options& opts, LaunchInfo& launch) {
     bool showUi = opts.forceUi || opts.autoStart || !(slots[0].valid || slots[1].valid) ||
                   (!slots[0].path.empty() && !slots[0].valid) || (!slots[1].path.empty() && !slots[1].valid);
     Screen screen = Screen::Pick;
+    Screen settingsReturn = Screen::Pick, updatesReturn = Screen::Pick;
     std::unique_ptr<Job> job;
     Plan plan;
     bool started = false;
@@ -251,9 +255,13 @@ bool run(const Options& opts, LaunchInfo& launch) {
         if (c == "host") return choose(1);
         if (c == "join") return choose(2);
         screen = Screen::Start;
+        if (c == "settings") settingsReturn = screen, screen = Screen::Settings;
+        if (c == "updates") updatesReturn = screen, screen = Screen::Updates;
         recomp::log("[start] menu");
     };
     if (screen == Screen::Pick && showUi && !(slots[0].valid || slots[1].valid)) recomp::log("[setup] waiting for a disc");
+    if (!started && opts.startChoice == "settings") screen = Screen::Settings;
+    if (!started && opts.startChoice == "updates") screen = Screen::Updates;
     std::vector<std::string> dropped;  // the background precache is queued by the first frame (Aurora patch 0013)
     while (!finished) {
         port::heartbeat();
@@ -319,17 +327,21 @@ bool run(const Options& opts, LaunchInfo& launch) {
         ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
         ImGui::Begin("##setup", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
-                         ImGuiWindowFlags_NoBringToFrontOnFocus);
+                         ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar |
+                         ImGuiWindowFlags_NoScrollWithMouse);
         // Menu size (ui_scale.cpp; setup's Auto: 600 lines = 100%), font rasterized at that size.
         const float scale = recomp::ui::scale();
         // LmCoop look: black, the logo centered in the upper part, one line of text under it.
-        ImGui::Dummy(ImVec2(0, ImGui::GetWindowHeight() * 0.12f));
-        drawLogo();
-        ImGui::Dummy(ImVec2(0, 24 * scale));
+        const bool panel = screen == Screen::Settings || screen == Screen::Updates;
+        if (!panel) {
+            ImGui::Dummy(ImVec2(0, ImGui::GetWindowHeight() * 0.12f));
+            drawLogo();
+            ImGui::Dummy(ImVec2(0, 24 * scale));
+        }
         const ImVec4 red(1.0f, 0.45f, 0.4f, 1), grey(0.6f, 0.6f, 0.6f, 1);
         auto centeredButton = [&](const char* label) {
             ImGui::SetCursorPosX((ImGui::GetWindowWidth() - ImGui::CalcTextSize(label).x) * 0.5f - 4 * scale);
-            return ImGui::SmallButton(label);
+            return recomp::menu::SmallButton(label);
         };
         if (screen == Screen::Pick) {
             if (slots[0].path.empty()) {
@@ -352,6 +364,7 @@ bool run(const Options& opts, LaunchInfo& launch) {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
             ImGui::PushStyleColor(ImGuiCol_Text, grey);
             if (centeredButton("Browse...")) browse(0, slots[0].path);
+            if (centeredButton("Settings")) settingsReturn = screen, screen = Screen::Settings;
             if (centeredButton("Quit")) {
                 ImGui::PopStyleColor(2);
                 ImGui::End();
@@ -361,7 +374,7 @@ bool run(const Options& opts, LaunchInfo& launch) {
             }
             ImGui::PopStyleColor(2);
         } else if (screen == Screen::Start) {
-            const ImVec2 big(ImGui::GetWindowWidth() * 0.3f, 44 * scale);
+            const ImVec2 big(ImGui::GetWindowWidth() * 0.3f, std::min(44 * scale, ImGui::GetWindowHeight() * 0.065f));
             auto bigButton = [&](const char* label) {
                 ImGui::SetCursorPosX((ImGui::GetWindowWidth() - big.x) * 0.5f);
                 const bool hit = ImGui::Button(label, big);
@@ -371,6 +384,11 @@ bool run(const Options& opts, LaunchInfo& launch) {
             if (framesDrawn == 0 || ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
             if (bigButton("Singleplayer")) choose(0);
             if (bigButton("Multiplayer")) screen = Screen::Multiplayer;
+            if (bigButton("Settings")) {
+                settingsReturn = Screen::Start;
+                screen = Screen::Settings;
+                recomp::log("[start] settings");
+            }
             if (bigButton("Quit")) {
                 ImGui::End();
                 ImGui::PopStyleColor(2);
@@ -398,6 +416,18 @@ bool run(const Options& opts, LaunchInfo& launch) {
             ImGui::EndDisabled();
             ImGui::SameLine(0, 12 * scale);
             if (ImGui::Button("Back", half)) screen = Screen::Start;
+        } else if (panel) {
+            ImGui::Dummy(ImVec2(0, 12 * scale));
+            centeredText(screen == Screen::Settings ? "Settings" : "Updates");
+            ImGui::Dummy(ImVec2(0, 12 * scale));
+            const float width = ImGui::GetWindowWidth() * 0.9f;
+            ImGui::SetCursorPosX((ImGui::GetWindowWidth() - width) * 0.5f);
+            ImGui::BeginChild("startup-panel", ImVec2(width, std::max(80.0f, ImGui::GetWindowHeight() - 160 * scale)));
+            if (screen == Screen::Settings) recomp::menu::drawStartupSettings();
+            else recomp::menu::drawStartupUpdates();
+            ImGui::EndChild();
+            ImGui::Dummy(ImVec2(0, 10 * scale));
+            if (centeredButton("Back")) screen = screen == Screen::Settings ? settingsReturn : updatesReturn;
         } else {
             std::string stage, error;
             float f = 0.0f;
@@ -441,6 +471,39 @@ bool run(const Options& opts, LaunchInfo& launch) {
                 }
             }
         }
+        // Keep version and update status visible before gameplay, including first-run setup.
+        const std::string version = std::string("v") + port::update::buildVersion();
+        const ImVec2 verSize = ImGui::CalcTextSize(version.c_str());
+        const float right = ImGui::GetWindowWidth() - 16 * scale;
+        const float bottom = ImGui::GetWindowHeight() - 12 * scale;
+        ImGui::SetCursorPos(ImVec2(right - verSize.x, bottom - verSize.y));
+        ImGui::TextDisabled("%s", version.c_str());
+        const auto update = port::update::state();
+        using Phase = port::update::Phase;
+        std::string status = "Check for updates";
+        switch (update.phase) {
+        case Phase::Checking: status = "Checking for updates..."; break;
+        case Phase::UpToDate: status = "Up to date"; break;
+        case Phase::CheckFailed: status = "Couldn't check for updates"; break;
+        case Phase::Available: status = "Update available: " + update.info.tag; break;
+        case Phase::Downloading: status = "Downloading update..."; break;
+        case Phase::Verifying: status = "Verifying update..."; break;
+        case Phase::Extracting: status = "Preparing update..."; break;
+        case Phase::Ready: status = "Update ready to install"; break;
+        case Phase::Installing: status = "Installing update..."; break;
+        case Phase::Failed: status = "Update failed - view details"; break;
+        default: break;
+        }
+        const float statusHeight = ImGui::GetFrameHeight();
+        ImGui::SetCursorPos(ImVec2(std::max(8 * scale, right - ImGui::CalcTextSize(status.c_str()).x - 8 * scale),
+                                  bottom - verSize.y - statusHeight - 6 * scale));
+        ImGui::BeginDisabled(screen == Screen::Working || screen == Screen::Shaders || screen == Screen::Failed);
+        if (ImGui::SmallButton(status.c_str()) && screen != Screen::Updates) {
+            updatesReturn = screen;
+            screen = Screen::Updates;
+            recomp::log("[start] updates");
+        }
+        ImGui::EndDisabled();
         ImGui::End();
         ImGui::PopStyleColor(2);
         aurora_end_frame();

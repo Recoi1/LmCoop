@@ -233,10 +233,8 @@ int main(int argc, char* argv[]) {
 #else
     port::recovery::onStart(true);
 #endif
-    // Updates (docs/SETUP.md "Updates"): remove what a finished update left, then look for a newer
-    // release in the background (never blocks; the F1 menu shows the result).
+    // Remove files left by an update. Checks and update controls live on the start screen.
     port::update::cleanupAfterUpdate();
-    port::update::startupCheck();
     // A data folder too deep for the files Aurora writes with plain paths (docs/SETUP.md "Long paths").
     if (const std::string p = port::dataPathProblem(); !p.empty()) {
         std::fprintf(stderr, "%s\n", p.c_str());

@@ -7,7 +7,7 @@
 // XDG folders, or the portable folder next to the program) are never touched; the game module rebuilds itself when the new runtime
 // needs it (module key, docs/SETUP.md).
 //
-// All work happens on a worker thread; the F1 menu polls state() every frame.
+// All work happens on a worker thread; the start screen polls state() every frame.
 // Test overrides: LM_UPDATE_FEED=<https/http://localhost URL, file:// URL or file path> (release
 // JSON object or array instead of the GitHub API), LM_UPDATE_VERSION=<pretend current version>.
 #include <cstdint>
@@ -64,8 +64,8 @@ struct State {
 
 State state();
 
-// Background check (no-op when updates.check_at_startup is off, in developer builds and build
-// trees unless LM_UPDATE_FEED is set, and with LM_UPDATE_CHECK=0).
+// Background check on the start screen (no-op when updates.check_at_startup is off
+// or with LM_UPDATE_CHECK=0). Installing still requires a release folder.
 void startupCheck();
 // Menu "Check for updates": always runs (shows a skipped version too).
 void checkNow();

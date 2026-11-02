@@ -1,4 +1,4 @@
-LmCoop 1.1.7 - Windows x64
+LmCoop 1.1.8 - Windows x64
 =========================
 
 Download/source: https://github.com/Recoi1/LmCoop
@@ -14,6 +14,9 @@ REQUIREMENTS AND INSTALLATION
 - Run LuigisMansionRecomp.exe. Drag your USA ISO/RVZ onto the setup screen,
   or use Browse. Wait for module compilation and shader preparation.
 - Choose Singleplayer or Multiplayer at the start menu.
+- Settings on the start screen configures visuals, sound, keyboard/mouse and controllers.
+- The bottom-right corner shows the version and checks for updates automatically.
+  Click the update status for release notes and download/install controls.
 
 MULTIPLAYER (EXPERIMENTAL)
 Both PCs need the same build and their own USA disc dump. Choose Host (Luigi)
@@ -42,5 +45,6 @@ llvm/bin/clang.exe and lld-link.exe: first-run compiler/linker.
 NOTICE.md and licenses/: third-party notices and licenses.
 llvm/LLVM-LICENSE.TXT: Apache-2.0 WITH LLVM-exception.
 
-Updates are checked from Recoi1/LmCoop. Older inherited technical documents
+Updates are checked from Recoi1/LmCoop on the start screen, before gameplay.
+Older inherited technical documents
 may refer to the original project's features and release pages.

@@ -425,12 +425,12 @@ void updatesSection() {
     ImGui::SeparatorText("Updates");
     const up::State st = up::state();
     if (std::strcmp(up::currentVersion(), up::buildVersion()) != 0)
-        ImGui::Text("Luigi's Mansion Recompiled %s (LM_UPDATE_VERSION: checking as %s)", up::buildVersion(), up::currentVersion());
+        ImGui::Text("LmCoop %s (LM_UPDATE_VERSION: checking as %s)", up::buildVersion(), up::currentVersion());
     else
-        ImGui::Text("Luigi's Mansion Recompiled %s", up::buildVersion());
+        ImGui::Text("LmCoop %s", up::buildVersion());
     auto& u = port::settings().updates;
     sDirty |= recomp::menu::Checkbox("Check for updates at startup", &u.checkAtStartup);
-    ImGui::SetItemTooltip("When the game starts, asks GitHub in the background whether a newer release is out\n"
+    ImGui::SetItemTooltip("On the start screen, asks GitHub in the background whether a newer release is out\n"
                           "and shows a short notice. Nothing is downloaded or installed without your click.");
     const bool busy = st.phase == up::Phase::Checking || st.phase == up::Phase::Downloading ||
                       st.phase == up::Phase::Verifying || st.phase == up::Phase::Extracting ||
@@ -485,15 +485,14 @@ void updatesSection() {
         break;
     case up::Phase::Installing: ImGui::TextUnformatted("Installing..."); break;
     case up::Phase::Ready:
-        ImGui::TextWrapped("%s is downloaded and verified. Save your game first: installing restarts the game, and "
-                           "progress since your last save is lost. Settings, saves and the installed discs are kept.",
+        ImGui::TextWrapped("%s is downloaded and verified. Installing restarts LmCoop. "
+                           "Settings, saves and the installed discs are kept.",
                            st.info.tag.c_str());
         if (recomp::menu::Button("Install and restart")) ImGui::OpenPopup("Install update?");
         ImGui::SameLine();
         if (recomp::menu::Button("Later")) up::later();
         if (ImGui::BeginPopupModal("Install update?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::Text("Install %s and restart now?", st.info.tag.c_str());
-            ImGui::TextDisabled("Unsaved game progress is lost.");
             if (recomp::menu::Button("Install and restart##confirm")) {
                 if (sDirty) {
                     port::saveSettings();
@@ -532,39 +531,6 @@ void updatesSection() {
         }
         break;
     }
-}
-
-// A short notice when a newer release was found (startup check): bottom-right corner for a few
-// seconds, takes no input, once per session. The details are in F1 > Game.
-void updateToast() {
-    static double sShownAt = -1.0;
-    if (sOpen || !port::update::shouldNotify()) return;
-    const double now = ImGui::GetTime();
-    if (sShownAt < 0.0) {
-        sShownAt = now;
-        std::printf("[update] notice shown: %s\n", port::update::state().info.tag.c_str());
-        std::fflush(stdout);
-    }
-    const double age = now - sShownAt;
-    constexpr double kShow = 12.0;
-    if (age > kShow) return;
-    const float alpha = age > kShow - 1.0 ? float(kShow - age) : 1.0f;
-    const auto st = port::update::state();
-    const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x - 16.0f * recomp::ui::scale(), vp->WorkPos.y + vp->WorkSize.y - 16.0f * recomp::ui::scale()),
-                            ImGuiCond_Always, ImVec2(1.0f, 1.0f));
-    ImGui::SetNextWindowBgAlpha(0.8f);
-    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, alpha);
-    constexpr ImGuiWindowFlags kFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
-                                        ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
-                                        ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoSavedSettings |
-                                        ImGuiWindowFlags_NoMove;
-    if (ImGui::Begin("##update_toast", nullptr, kFlags)) {
-        ImGui::Text("Update available: %s", st.info.tag.c_str());
-        ImGui::TextDisabled("F1 > Game to see what's new");
-    }
-    ImGui::End();
-    ImGui::PopStyleVar();
 }
 
 // "Press F1" hint (F1 > Visuals > General, setting [interface] start_hint): top-left for the first
@@ -792,7 +758,6 @@ void gameTab() {
     if (port::palBaseFeature() == port::Avail::Yes)
         ImGui::TextDisabled("Used for a new save; an existing save keeps its language (in-game Options).");
     dataSection();
-    updatesSection();
 }
 
 // Hardware-accuracy toggles (all on by default). Each entry: checkbox bound to
@@ -1595,7 +1560,7 @@ bool volumeSlider(const char* label, float& v) {
     return true;
 }
 
-void soundTab() {
+void soundTab(bool startup) {
     auto& a = port::settings().audio;
     ImGui::SeparatorText("Volume");
     sDirty |= volumeSlider("Master volume", a.masterVolume);
@@ -1617,7 +1582,7 @@ void soundTab() {
             "5.1 / 7.1: the game's surround mode with its centre and surround channels\n"
             "played on their own speakers instead of matrix-encoded. Needs a device with\n"
             "6 / 8 channels (else falls back to 5.1 or matrix-encoded stereo).");
-    {
+    if (!startup) {
         const int dev = recomp::audio::outDeviceChannels();
         if (dev > 0) ImGui::TextDisabled("Device: %d channels. Playing: %s", dev, recomp::audio::outStatus());
         else ImGui::TextDisabled("Playing: %s", recomp::audio::outStatus());
@@ -1635,7 +1600,7 @@ void soundTab() {
     sDirty |= recomp::menu::Checkbox("Voice filters", &a.voiceFilters);
     ImGui::SetItemTooltip("Per-voice FIR / IIR / distortion stages the game asks the DSP for (muffled or\n"
                           "distorted sounds). Off: those sounds play unfiltered, slightly cheaper.");
-    recomp::unused2::soundSection();
+    if (!startup) recomp::unused2::soundSection();
 }
 
 // Gameplay / difficulty (port::GameplaySettings, src/recomp/gameplay_hooks.cpp). All neutral by
@@ -1930,6 +1895,46 @@ void fpsOverlay() {
     ImGui::End();
 }
 
+void settingsTabs(bool startup) {
+    if (ImGui::BeginTabBar("tabs")) {
+        if (tab("Visuals")) {
+            if (ImGui::BeginTabBar("visuals")) {
+                if (ImGui::BeginTabItem("General", nullptr, envTab("General"))) {
+                    visualsTab();
+                    ImGui::EndTabItem();
+                }
+                if (ImGui::BeginTabItem("Rendering", nullptr, envTab("Rendering"))) {
+                    renderingTab();
+                    ImGui::EndTabItem();
+                }
+                if (ImGui::BeginTabItem("Enhanced lighting", nullptr, envTab("Enhanced lighting"))) {
+                    enhancedLightingTab();
+                    ImGui::EndTabItem();
+                }
+                ImGui::EndTabBar();
+            }
+            ImGui::EndTabItem();
+        }
+        if (tab("Sound")) {
+            soundTab(startup);
+            ImGui::EndTabItem();
+        }
+        if (tab("Controls")) {
+            sDirty |= recomp::controls::drawTab();
+            ImGui::EndTabItem();
+        }
+        if (!startup && tab("Enhancements")) {
+            enhancementsTab();
+            ImGui::EndTabItem();
+        }
+        if (!startup && tab("Game")) {
+            gameTab();
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+}
+
 }  // namespace
 
 void init() {
@@ -1942,6 +1947,20 @@ void init() {
         sOpenTab = tab;
     }
     if (idcheck::active()) sOpen = true;
+}
+
+void drawStartupSettings() {
+    click::frame();
+    ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.45f);
+    settingsTabs(true);
+    ImGui::PopItemWidth();
+    shutdown();  // Persist changes even if the player closes the launcher here.
+}
+
+void drawStartupUpdates() {
+    click::frame();
+    updatesSection();
+    shutdown();
 }
 
 void openTreesForCheck() {
@@ -2134,7 +2153,6 @@ void draw() {
             if (v >> (31 - i) & 1)
                 dl->AddRectFilled(ImVec2(o.x + s * (2 + i), o.y), ImVec2(o.x + s * (3 + i), o.y + s), IM_COL32(255, 255, 255, 255));
     }
-    updateToast();
     refreshRateToast();
     startHint();
     if (!sOpen) return;
@@ -2147,43 +2165,7 @@ void draw() {
     bool open = true;
     if (ImGui::Begin(kMenuWindow, &open, ImGuiWindowFlags_NoCollapse)) {
         ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.45f);
-        if (ImGui::BeginTabBar("tabs")) {
-            if (tab("Visuals")) {
-                if (ImGui::BeginTabBar("visuals")) {
-                    if (ImGui::BeginTabItem("General", nullptr, envTab("General"))) {
-                        visualsTab();
-                        ImGui::EndTabItem();
-                    }
-                    if (ImGui::BeginTabItem("Rendering", nullptr, envTab("Rendering"))) {
-                        renderingTab();
-                        ImGui::EndTabItem();
-                    }
-                    if (ImGui::BeginTabItem("Enhanced lighting", nullptr, envTab("Enhanced lighting"))) {
-                        enhancedLightingTab();
-                        ImGui::EndTabItem();
-                    }
-                    ImGui::EndTabBar();
-                }
-                ImGui::EndTabItem();
-            }
-            if (tab("Sound")) {
-                soundTab();
-                ImGui::EndTabItem();
-            }
-            if (tab("Controls")) {
-                sDirty |= recomp::controls::drawTab();
-                ImGui::EndTabItem();
-            }
-            if (tab("Enhancements")) {
-                enhancementsTab();
-                ImGui::EndTabItem();
-            }
-            if (tab("Game")) {
-                gameTab();
-                ImGui::EndTabItem();
-            }
-            ImGui::EndTabBar();
-        }
+        settingsTabs(false);
         ImGui::PopItemWidth();
         // Quit (with confirmation): ends the host loop the same way closing the window does.
         ImGui::Separator();

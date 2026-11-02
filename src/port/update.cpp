@@ -1514,14 +1514,10 @@ State state() {
 
 void startupCheck() {
     if (!port::settings().updates.checkAtStartup) {
-        ulog("startup check off (F1 > Game)");
+        ulog("startup check off (start screen > Updates)");
         return;
     }
     if (const char* v = std::getenv("LM_UPDATE_CHECK"); v && *v == '0') return;
-    if (!isPackaged() && feedOverride().empty()) {
-        ulog("not a release folder (%s): no startup check", utf8(installDir()).c_str());
-        return;
-    }
     {
         std::lock_guard lk(sM);
         sState.phase = Phase::Checking;

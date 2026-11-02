@@ -28,6 +28,10 @@ Online co-op is experimental. Full campaign completion and reliable synchronizat
 
 F1 opens settings. Keyboard, mouse, and controller bindings are available under Controls. Mouse selection is supported on the file selection screen.
 
+The start screen also has a **Settings** menu for visuals, sound, and controls. The version
+and automatic update status appear in the bottom-right corner. Click that status to see
+release notes and download/install an update before playing.
+
 Settings, caches and saves use `%APPDATA%\Luigi's Mansion Recompiled` by default. Create `portable.txt` next to the executable before first launch to use a local `portable` folder instead. Back up existing saves before trying experimental multiplayer. Diagnostic output is in `last_run.log` in the data folder.
 
 To uninstall, delete the extracted release folder. Data in AppData remains; remove it separately only if you no longer want the settings and saves.
