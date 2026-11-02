@@ -415,3 +415,12 @@ if (EXISTS ${LM_DOL})
 else ()
     message(STATUS "LM_DOL not found (${LM_DOL}); skipping the lmrecomp developer build")
 endif ()
+
+# Transport-level end-to-end test of the internet path (server/test/e2e.test.js). Not built by default:
+#   powershell -File tools/build.ps1 -Target lm_rtc_test
+add_executable(lm_rtc_test EXCLUDE_FROM_ALL tools/recomp/online_rtc_test.cpp src/recomp/online_rtc.cpp src/recomp/online_udp.cpp)
+target_include_directories(lm_rtc_test PRIVATE src)
+target_link_libraries(lm_rtc_test PRIVATE LibDataChannel::LibDataChannelStatic nlohmann_json::nlohmann_json)
+if (WIN32)
+    target_link_libraries(lm_rtc_test PRIVATE ws2_32 crypt32)
+endif ()
