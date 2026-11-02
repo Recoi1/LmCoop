@@ -1,4 +1,6 @@
-# LmCoop
+<p align="center">
+  <img src="assets/readme-logo.png" alt="LmCoop" width="600">
+</p>
 
 A native Windows recompilation of Luigi's Mansion with a Singleplayer / Multiplayer start menu and experimental online co-op.
 
