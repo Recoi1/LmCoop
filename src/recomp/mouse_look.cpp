@@ -21,7 +21,7 @@ namespace {
 std::atomic<float> sPending{0.0f}, sPendingPitch{0.0f};
 std::uint16_t sYaw = 0;  // the facing the mouse holds
 bool sYawOn = false, sMouseSeen = false;
-std::atomic<bool> sStickTurn{false};  // the C-stick is turning him this frame (arrow keys, a gamepad)
+std::atomic<bool> sStickTurn{false}, sStickPitch{false};  // the C-stick is turning / tilting this frame (arrow keys, a gamepad)
 float sPitch = 0;  // degrees the look-at is held at
 bool sPitchOn = false;
 
@@ -99,6 +99,7 @@ void beforeUpdate(Ctx& c, u32 self) {
     if (sStickTurn && pixels == 0) sYaw = now;  // the C-stick turns him: the game's turn stands
     if (pixels != 0) sYaw = turned(sYaw, pixels, 1.0f);
     if (sMouseSeen && sYaw != now) setYaw(c, self, sYaw);
+    if (sStickPitch && up == 0) sPitchOn = false;  // the C-stick tilts it: the game's pitch stands; the mouse picks it up again
     if (up != 0 || sPitchOn) {
         // The camera (object at +0x798: look-at at +0x8C, eye at +0x98) is what the game raises and
         // lowers with the C-stick, easing for ~100 frames; F80 (+0xF80) is the direction from the eye
@@ -132,6 +133,7 @@ void afterUpdate(Ctx& c, u32 self) {
 void stick(PADStatus* st, bool keyboard) {
     static const bool sForce = std::getenv("LM_TEST_FPS") != nullptr;  // testing: any device
     sStickTurn = std::abs(int(st[0].substickX)) > 20;
+    sStickPitch = std::abs(int(st[0].substickY)) > 20;
     if (ver::pal() || !g_mem || !sMouseSeen || !sYawOn || !(keyboard || sForce)) return;
     const u32 self = localActor();
     const u32 cam = self ? rd32(self + 0x798) : 0;
