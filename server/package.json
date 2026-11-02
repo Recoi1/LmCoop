@@ -1,0 +1,16 @@
+{
+  "name": "lmcoop-matchmaking",
+  "version": "0.1.0",
+  "description": "Lobby and signaling server for LmCoop internet play. It never simulates gameplay and never relays game traffic.",
+  "license": "MIT",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
