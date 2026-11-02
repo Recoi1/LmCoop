@@ -86,6 +86,11 @@ Keyboard and mouse:
 | D-pad up / down / left / right | 1 / 2 / 3 / 4 |
 | Analog L / R | (none: the L/R clicks give a full press) |
 
+Moving the mouse while walking around (keyboard and mouse profile) turns Luigi left/right and
+raises or lowers the camera at once, 1:1. After the mouse has been used, W A S D move relative to
+where Luigi faces (W forward, A/D sideways, S back) and he keeps facing the mouse's way while he
+walks; the arrow keys (C-stick) still turn him. Mouse sensitivity is in the Controls menu.
+
 Tab (fast-forward), F1 (menu), F3/F4 (debug overlays) and Esc are left free.
 
 Gamepads (face buttons by position, except that Nintendo pads use their printed letters):

@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <cstdlib>
 
+struct PADStatus;
+
 namespace recomp {
 struct Ctx;
 }
@@ -37,6 +39,17 @@ inline float pitched(float pitch, float up, float sensitivity = 1.0f) {
     return std::clamp(pitch - up * sensitivity * kDegreesPerPixel, 0.0f, kMaxPitch);
 }
 
+// W/A/S/D relative to where the player faces: the game moves Luigi relative to its camera, so the
+// stick (x right, y forward) is turned by the facing minus the camera's direction (radians, both
+// (sin, cos) angles; turning right is a smaller angle, measured). In place, clamped to +-127.
+inline void fpsStick(int& x, int& y, float facingRad, float cameraRad) {
+    const float m = std::hypot(float(x), float(y));
+    if (m == 0) return;
+    const float a = std::atan2(float(x), float(y)) - (facingRad - cameraRad);
+    x = std::clamp(int(std::lround(m * std::sin(a))), -127, 127);
+    y = std::clamp(int(std::lround(m * std::cos(a))), -127, 127);
+}
+
 // controls.cpp: vertical mouse motion while walking around (up positive, scaled by the sensitivity).
 void addPitchPixels(float up);
 // controls.cpp: horizontal mouse motion while walking around (already scaled by the sensitivity).
@@ -44,5 +57,10 @@ void addPixels(float pixels);
 // Before the game's per-frame update of player `self` (fn_800B783C hook): turns the player this PC
 // controls by the mouse motion collected since, at once (walking around only: scene 2, mode 0).
 void beforeUpdate(Ctx& c, std::uint32_t self);
+// After that update: while the mouse is in use the facing stays the mouse's, not the walking direction.
+void afterUpdate(Ctx& c, std::uint32_t self);
+// PADRead (hle_pad.cpp), after the input script and filters: with keyboard and mouse, W/A/S/D move
+// relative to the facing (fpsStick). Only after the mouse has been used.
+void stick(PADStatus* st, bool keyboard);
 
 }  // namespace recomp::mouselook

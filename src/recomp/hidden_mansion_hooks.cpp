@@ -212,6 +212,7 @@ HLE(fn_800B783C) {
         // mansion after 15 frames, else off); fn_800B84E4 below overrides it for the options.
         mouselook::beforeUpdate(c, self);
         callOriginal(c, "fn_800B783C");
+        mouselook::afterUpdate(c, self);
         if (sTrace && ++sTick % 30 == 0)
             log("[hm] luigi map %u pos %.1f %.1f %.1f mode %u", rd32(kCurMapNo), rdf(self + 0x44), rdf(self + 0x48),
                 rdf(self + 0x4C), u32(rd8(self + 0x1350)));
@@ -238,6 +239,7 @@ HLE(fn_800B783C) {
     }
     mouselook::beforeUpdate(c, self);
     callOriginal(c, "fn_800B783C");
+    mouselook::afterUpdate(c, self);
     if (sTrace && ++sTick % 30 == 0)
         log("[hm] luigi map %u pos %.1f %.1f %.1f mode %u", rd32(kCurMapNo), rdf(self + 0x44), rdf(self + 0x48),
             rdf(self + 0x4C), u32(rd8(self + 0x134C)));

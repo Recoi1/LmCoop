@@ -5,6 +5,7 @@
 
 #include "port/options.h"
 #include "recomp/controls.h"
+#include "recomp/mouse_look.h"
 #include "recomp/coop.h"
 #include "recomp/coop_test.h"
 #include "recomp/campaign_test.h"
@@ -205,6 +206,7 @@ HLE(PADRead) {
             log("[pad] retrace %u frame %u: buttons %04X err %d", viRetraceCount(), skip::guestFrames(), st[0].button, st[0].err);
     }
     skip::filterPad(st, PAD_MAX_CONTROLLERS);
+    mouselook::stick(st, controls::keyboardActive());  // W/A/S/D relative to the mouse facing
     menumouse::pad(st);  // the mouse in the game's menus (point and click)
     online::pad(st);  // online co-op: local pad to the local player, the other PC's to the other
     // 2-player co-op improvements: player 2's Game Boy Horror buttons do nothing, and player 2

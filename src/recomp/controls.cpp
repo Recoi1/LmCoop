@@ -1680,6 +1680,11 @@ void updateHost() {
     if (!sMouseRelative) sMouse.clear();
 }
 
+bool keyboardActive() {
+    std::lock_guard lk(sMutex);
+    return sPorts[0].keyboard;
+}
+
 void beforeRead() {
     std::lock_guard lk(sMutex);
     runVirtualScript();

@@ -11,6 +11,8 @@ namespace recomp::controls {
 
 // F1 menu tab (host thread). Returns true when a setting changed (the menu saves on close).
 bool drawTab();
+// Port 1 is on the keyboard (and mouse) right now.
+bool keyboardActive();
 void selectSubTab(const char* name);  // "Controller", "Ports", "Bindings", "Analog", "DSU" or "Online" (test aids)
 // Host event loop, before the menu's own hotkeys. True: the event belongs to a "press a
 // button to bind" capture and must not reach F1/Esc or other hotkeys.
