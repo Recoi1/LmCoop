@@ -66,7 +66,7 @@ bool sDirty = false;
 bool sQuit = false;  // "Quit game" confirmed
 // The menu window. The ID after ### is the old title, so imgui.ini keeps the window's saved size
 // and place.
-constexpr const char* kMenuWindow = "Luigi's Mansion Recompiled  (F1)###Luigi's Mansion PC  (F1)";
+constexpr const char* kMenuWindow = "LmCoop  (F1)###Luigi's Mansion PC  (F1)";
 std::string sOpenTab = sEnvTab ? "Enhancements" : "";  // tab to select once (LM_MENU / LM_MENU_TAB)
 
 // ---- Test aid LM_MENU_ID_CHECK=1: Dear ImGui ID-conflict sweep ----------------------------

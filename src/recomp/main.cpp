@@ -308,6 +308,8 @@ int main(int argc, char* argv[]) {
     if (topmost) SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
     cpu::init();  // thread policy + Aurora thread hooks (issue #18), before Aurora starts its threads
     aurora_initialize(argc, argv, &config);
+    // Shown name only: config.appName above also names Aurora's data/cache folders, which stay as they were.
+    if (SDL_Window* w = aurora_get_window()) SDL_SetWindowTitle(w, "LmCoop");
     mem::trackInit();  // LM_MEM_TRACK (test aid, docs/RENDERING.md "Memory use over time")
     if (topmost)
         if (SDL_Window* w = aurora_get_window()) SDL_SetWindowAlwaysOnTop(w, true);

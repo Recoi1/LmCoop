@@ -182,9 +182,9 @@ int ask(const RunState& prev, bool canRebuild) {
     // answers the prompt (automated runs never show it).
     if (const char* e = std::getenv("LM_RECOVERY")) return std::atoi(e);
     if (std::getenv("LM_BACKGROUND")) return 0;
-    std::string text = prev.state != "crashed" ? "The last starts of Luigi's Mansion Recompiled did not finish"
-                       : prev.phase == "startup" ? "The last start of Luigi's Mansion Recompiled stopped with an error"
-                                                 : "Luigi's Mansion Recompiled stopped with an error last time";
+    std::string text = prev.state != "crashed" ? "The last starts of LmCoop did not finish"
+                       : prev.phase == "startup" ? "The last start of LmCoop stopped with an error"
+                                                 : "LmCoop stopped with an error last time";
     if (!prev.reason.empty()) text += ":\n\n" + prev.reason;
     text += "\n\nUsually starting normally is fine. If the game does not start or the error keeps coming "
             "back, one of these may help:\n\n"
@@ -203,7 +203,7 @@ int ask(const RunState& prev, bool canRebuild) {
     buttons.push_back({0, 3, "Put saves aside"});
     SDL_MessageBoxData box{};
     box.flags = SDL_MESSAGEBOX_WARNING | SDL_MESSAGEBOX_BUTTONS_LEFT_TO_RIGHT;
-    box.title = "Luigi's Mansion Recompiled";
+    box.title = "LmCoop";
     box.message = text.c_str();
     box.numbuttons = int(buttons.size());
     box.buttons = buttons.data();
