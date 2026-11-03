@@ -107,7 +107,7 @@ Game: `Run-Crash-Tests.cmd --exe <lmrecomp.exe> --only online-` (two game instan
 `online-internet-*` cases start a local matchmaking server themselves).
 
 Results of 2026-11-02 (Windows 11, one PC, loopback). See section 6 for what this does **not** cover.
-Other LAN cases on the working tree (which also holds unfinished, uncommitted cutscene-sync work by another assistant): `online-handshake`, `online-bad-password`, `online-names`, `online-client-drop` passed; `online-puppet` and `online-map-mismatch` failed with `client:setup_failed` and were **not investigated** (no baseline was run for them). `online-internet-handshake` and `online-internet-bad-password` passed. Internet cases give the host a longer run than the LAN ones because the client starts after the invite code appears.
+Other LAN cases on the working tree (which also holds unfinished, uncommitted cutscene-sync work by another assistant): `online-handshake`, `online-bad-password`, `online-names`, `online-client-drop` passed; `online-puppet` failed there with `client:setup_failed`, but passes on the committed code alone, so that failure came from the unfinished cutscene work. `online-map-mismatch` fails (`host:assertion_failed`) on the untouched 1.2.3 baseline too (2 of 2 runs), so it predates this work and was not investigated further. `online-internet-handshake` and `online-internet-bad-password` passed. Internet cases give the host a longer run than the LAN ones because the client starts after the invite code appears.
 
 | # | Requirement | Result |
 |---|---|---|
