@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <thread>
@@ -42,6 +43,13 @@ std::filesystem::path exeDir() {
 #endif
 }
 
+// Test aid for LM_CRASH_KIND=overflow.
+[[maybe_unused]] int overflowStack(int depth) {
+    volatile char pad[512];
+    pad[0] = char(depth);
+    return overflowStack(depth + 1) + pad[0];
+}
+
 }  // namespace
 
 void configure() {
@@ -53,6 +61,8 @@ void configure() {
         const double seconds = std::atof(c);
         std::thread([seconds] {
             std::this_thread::sleep_for(std::chrono::duration<double>(seconds));
+            // LM_CRASH_KIND=overflow: a stack overflow instead (the crash trace file, port/crash_handler.h)
+            if (const char* k = std::getenv("LM_CRASH_KIND"); k && !std::strcmp(k, "overflow")) overflowStack(1);
             std::abort();
         }).detach();
     }

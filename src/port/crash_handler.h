@@ -4,6 +4,10 @@
 namespace port {
 // Installs abort/terminate/SEH handlers that print a symbolized stack trace to stderr.
 void installCrashHandler();
+// Windows: where a crash writes its own trace file, crash_trace_<pid>.txt in `dir` (the data folder). It is a
+// separate file made at crash time (one per process, shared so another process can read it), so a crash is
+// recorded even when the run log could not be opened or a stack overflow left no room for the normal report.
+void setCrashTraceDir(const char* dirUtf8);
 // Logs "[hang] ..." with the current phase (setPhase) when the main thread has not called
 // heartbeat() for 15 s (then every 30 s). Linux: every thread's stack once per run at the first
 // report (issue #11). LM_HANG_DUMP=<seconds>: also every thread's stack (three samples a second

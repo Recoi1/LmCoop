@@ -1,6 +1,7 @@
 // Start-up recovery and the run log (recovery.h; docs/SETUP.md "When the game does not start").
 #include "port/recovery.h"
 
+#include "port/crash_handler.h"
 #include "port/crash_report.h"
 #include "port/install.h"
 #include "port/settings.h"
@@ -416,8 +417,14 @@ void openRunLog() {
     std::error_code ec;
     const fs::path dir = configDir();
     const fs::path path = dir / "last_run.log";
+    setCrashTraceDir(u8(dir).c_str());
     if (fs::exists(path, ec)) {
-        fs::rename(path, dir / "previous_run.log", ec);
+        // The old process may still be closing (an update restart, or a crash that is still being reported): give it a moment.
+        for (int i = 0; i < 30; i++) {
+            fs::rename(path, dir / "previous_run.log", ec);
+            if (!ec) break;
+            Sleep(100);
+        }
         // A rename fails while another process still holds the file (the old version after an update restart, or a
         // crashed run that is still closing). Copy it instead, so the crashed run's log is not lost to the truncation below.
         if (ec) fs::copy_file(path, dir / "previous_run.log", fs::copy_options::overwrite_existing, ec);

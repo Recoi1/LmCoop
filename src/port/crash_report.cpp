@@ -181,12 +181,22 @@ const char* buildId() {
 fs::path preserve(const std::string& reason, const std::string& version, const std::string& build) {
     std::error_code ec;
     const fs::path log = configDir() / "previous_run.log";
-    if (!fs::exists(log, ec)) return {};
+    // crash_trace_<pid>.txt: what the crash handler wrote itself (crash_handler.h), kept apart from the log
+    std::vector<fs::path> traces;
+    for (const auto& e : fs::directory_iterator(configDir(), ec)) {
+        const std::string n = e.path().filename().string();
+        if (n.rfind("crash_trace_", 0) == 0) traces.push_back(e.path());
+    }
+    if (!fs::exists(log, ec) && traces.empty()) return {};
     const std::string id = randomId();
     const fs::path dir = reportsDir() / (stamp() + "-" + id);
     fs::create_directories(dir, ec);
     if (ec) return {};
-    fs::copy_file(log, dir / "log.txt", fs::copy_options::overwrite_existing, ec);
+    if (fs::exists(log, ec)) fs::copy_file(log, dir / "log.txt", fs::copy_options::overwrite_existing, ec);
+    for (const auto& t : traces) {
+        std::ofstream(dir / "log.txt", std::ios::binary | std::ios::app) << "\n=== crash trace file " << t.filename().string() << " ===\n" << readAll(t);
+        fs::remove(t, ec);
+    }
     if (fs::exists(sessionFile(), ec)) fs::copy_file(sessionFile(), dir / "session.txt", fs::copy_options::overwrite_existing, ec);
     std::ofstream(dir / "meta.txt", std::ios::binary) << "id=" << id << "\nreason=" << reason << "\nversion=" << version << "\nbuild=" << build << "\n";
     prune();

@@ -108,6 +108,50 @@ void onAbort(int) {
 }
 
 #ifdef _WIN32
+wchar_t sTracePath[600];
+
+// Appends to crash_trace_<pid>.txt. Only Win32 calls and the caller's buffer: safe on a nearly exhausted stack.
+void writeTrace(const char* data, DWORD n) {
+    if (!sTracePath[0]) return;
+    HANDLE h = CreateFileW(sTracePath, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                           OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+    DWORD w = 0;
+    WriteFile(h, data, n, &w, nullptr);
+    CloseHandle(h);
+}
+
+// The faulting thread's frames, from the exception's own context (the handler runs on that thread, so a stack walk
+// from here would show the dispatcher, not the code that was running). Module + offset, for llvm-symbolizer.
+void writeTraceFrames(const CONTEXT* from) {
+#ifdef _M_X64
+    CONTEXT ctx = *from;
+    char line[200];
+    for (int i = 0; i < 48 && ctx.Rip; i++) {
+        HMODULE mod = nullptr;
+        char name[128] = "?";
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCSTR>(ctx.Rip), &mod))
+            GetModuleFileNameA(mod, name, sizeof(name));
+        const char* base = std::strrchr(name, '\\');
+        const int n = wsprintfA(line, "  #%02d %s+0x%lX\n", i, base ? base + 1 : name,
+                                static_cast<unsigned long>(ctx.Rip - reinterpret_cast<DWORD64>(mod)));
+        writeTrace(line, DWORD(n));
+        DWORD64 imageBase = 0;
+        if (RUNTIME_FUNCTION* fe = RtlLookupFunctionEntry(ctx.Rip, &imageBase, nullptr)) {
+            void* handlerData = nullptr;
+            DWORD64 frame = 0;
+            RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, ctx.Rip, fe, &ctx, &handlerData, &frame, nullptr);
+        } else {  // a leaf without unwind data: the return address is on top of the stack
+            ctx.Rip = *reinterpret_cast<DWORD64*>(ctx.Rsp);
+            ctx.Rsp += 8;
+        }
+    }
+#else
+    (void)from;
+#endif
+}
+
 // First chance, before anything unwinds: stack overflows and faults in the game module DLL
 // may never reach the unhandled-exception filter with enough stack to symbolize, so report
 // the code, the faulting address and the module it is in with minimal stack use.
@@ -129,15 +173,36 @@ LONG WINAPI onVectored(EXCEPTION_POINTERS* info) {
                             reinterpret_cast<void*>(info->ContextRecord->Rsp));
     DWORD written = 0;
     WriteFile(GetStdHandle(STD_ERROR_HANDLE), buf, DWORD(n), &written, nullptr);
+    writeTrace(buf, DWORD(n));
+    writeTraceFrames(info->ContextRecord);
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
-LONG WINAPI onException(EXCEPTION_POINTERS* info) {
+void reportException(DWORD code) {
     aurora_pipeline_cache_note_crash();
     char reason[64];
-    std::snprintf(reason, sizeof(reason), "exception 0x%08lX", info->ExceptionRecord->ExceptionCode);
+    std::snprintf(reason, sizeof(reason), "exception 0x%08lX", code);
     recovery::onCrash(reason);
     printStack(reason);
+}
+
+DWORD WINAPI reportExceptionThread(LPVOID code) {
+    reportException(static_cast<DWORD>(reinterpret_cast<uintptr_t>(code)));
+    return 0;
+}
+
+LONG WINAPI onException(EXCEPTION_POINTERS* info) {
+    const DWORD code = info->ExceptionRecord->ExceptionCode;
+    if (code == EXCEPTION_STACK_OVERFLOW) {
+        // The faulting thread has almost no stack left: formatting and symbolizing there overflows again and the
+        // process dies without a word. A fresh thread has room.
+        if (HANDLE t = CreateThread(nullptr, 1 << 20, reportExceptionThread, reinterpret_cast<LPVOID>(static_cast<uintptr_t>(code)), 0, nullptr)) {
+            WaitForSingleObject(t, 20000);
+            CloseHandle(t);
+        }
+    } else {
+        reportException(code);
+    }
     return EXCEPTION_EXECUTE_HANDLER;
 }
 #else
@@ -473,6 +538,16 @@ void startHangWatchdog() {
     }).detach();
 }
 
+void setCrashTraceDir(const char* dirUtf8) {
+#ifdef _WIN32
+    wchar_t dir[520];
+    if (!MultiByteToWideChar(CP_UTF8, 0, dirUtf8, -1, dir, 520)) return;
+    swprintf(sTracePath, 600, L"%ls\\crash_trace_%lu.txt", dir, GetCurrentProcessId());
+#else
+    (void)dirUtf8;
+#endif
+}
+
 void installCrashHandler() {
     std::signal(SIGABRT, onAbort);
     std::set_terminate([] {
@@ -482,6 +557,8 @@ void installCrashHandler() {
         std::_Exit(3);
     });
 #ifdef _WIN32
+    ULONG guarantee = 128 * 1024;  // stack kept free for the handlers after an overflow (this thread only)
+    SetThreadStackGuarantee(&guarantee);
     SetUnhandledExceptionFilter(onException);
 #if !LM_ASAN
     // ASan commits its shadow on demand through access violations and reports real faults itself;
