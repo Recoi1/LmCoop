@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
+#include <initializer_list>
 #include <limits>
 
 using namespace recomp::online;
@@ -124,5 +125,70 @@ int main() {
 
     // Encoding into a too-small buffer writes nothing.
     assert(encode(h, body, bodyLen, buf, kHeaderWireSize) == 0);
+
+    // State carries the cutscene progress and the scene (protocol 4).
+    PlayerState ev = in;
+    ev.event.serial = 9, ev.event.choice = 2, ev.event.choiceOffset = 0x1234, ev.event.selection = 3;
+    ev.event.phase = EventPhase::Playing;
+    ev.scene = 4, ev.sceneDone = true;
+    ev.yaw = 0xBEEF, ev.aim = 201;
+    encodeState(ev, body, sizeof(body));
+    assert(decodeState(body, kStateWireSize, out));
+    assert(out.event.serial == 9 && out.event.choice == 2 && out.event.choiceOffset == 0x1234 &&
+           out.event.selection == 3 && out.event.phase == EventPhase::Playing && out.scene == 4 && out.sceneDone);
+    assert(out.yaw == 0xBEEF && out.aim == 201);
+    for (int invalid = 0; invalid < 4; invalid++) {
+        PlayerState badEv = ev;
+        if (invalid == 0) badEv.event.phase = EventPhase(9);
+        if (invalid == 1) badEv.event.selection = 32;
+        if (invalid == 2) badEv.event.choiceOffset = 0x100001;
+        if (invalid == 3) badEv.scene = 8;
+        encodeState(badEv, body, sizeof(body));
+        assert(!decodeState(body, kStateWireSize, out));
+    }
+
+    // Game: the scene (2 main game, 4-7 the special scenes) and the rank.
+    GameState scene = game;
+    scene.scene = 5, scene.rank = 7;
+    encodeGame(scene, body, sizeof(body));
+    assert(decodeGame(body, kGameWireSize, restored) && restored.scene == 5 && restored.rank == 7);
+    for (const u8 s : {u8(0), u8(1), u8(3), u8(8)}) {
+        scene.scene = s, scene.rank = 0;
+        encodeGame(scene, body, sizeof(body));
+        assert(!decodeGame(body, kGameWireSize, restored));
+    }
+    scene.scene = 2, scene.rank = 8;
+    encodeGame(scene, body, sizeof(body));
+    assert(!decodeGame(body, kGameWireSize, restored));
+
+    // Event: a cutscene start chosen by the host, with the host's game around it.
+    SceneEvent se{};
+    se.game = game, se.game.scene = 2;
+    se.serial = 5, se.parameter = 0x1234, se.trigger = 17, se.number = 44;
+    assert(encodeEvent(se, body, sizeof(body)) == kEventWireSize);
+    assert(encodeEvent(se, body, kEventWireSize - 1) == 0);
+    SceneEvent seOut{};
+    assert(decodeEvent(body, kEventWireSize, seOut));
+    assert(seOut.serial == 5 && seOut.parameter == 0x1234 && seOut.trigger == 17 && seOut.number == 44 &&
+           seOut.game.world == 22 && std::memcmp(seOut.game.save, game.save, kSaveSize) == 0);
+    assert(!decodeEvent(body, kEventWireSize - 1, seOut));
+    assert(!decodeEvent(body, kEventWireSize + 1, seOut));
+    se.parameter = 0xFFFFFFFF;  // "no parameter" is allowed
+    encodeEvent(se, body, sizeof(body));
+    assert(decodeEvent(body, kEventWireSize, seOut) && seOut.parameter == 0xFFFFFFFF);
+    for (int invalid = 0; invalid < 5; invalid++) {
+        SceneEvent badSe = se;
+        if (invalid == 0) badSe.serial = 0;
+        if (invalid == 1) badSe.game.scene = 4;
+        if (invalid == 2) badSe.trigger = 2048;
+        if (invalid == 3) badSe.number = 110;
+        if (invalid == 4) badSe.parameter = 0x10000;
+        encodeEvent(badSe, body, sizeof(body));
+        seOut = {};
+        assert(!decodeEvent(body, kEventWireSize, seOut));
+        assert(seOut.serial == 0);  // a rejected packet changes nothing
+    }
+    // Every message still fits one datagram.
+    assert(kHeaderWireSize + kEventWireSize <= kMaxPacket && kHeaderWireSize + kStateWireSize <= kMaxPacket);
     return 0;
 }

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(lmport LANGUAGES C CXX VERSION 1.2.2)
+project(lmport LANGUAGES C CXX VERSION 1.3.0)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
@@ -57,6 +57,9 @@ add_subdirectory(extern/aurora EXCLUDE_FROM_ALL)
 # plus nlohmann/json (MIT) for the matchmaking messages. All three are built from source and linked
 # statically; nothing is installed. MbedTLS needs DTLS-SRTP switched on (the lmcoop config header).
 include(FetchContent)
+# Kept out of `cmake --install` (the release package): with install rules skipped, CMake still lists
+# each fetched directory's cmake_install.cmake in the top-level one but never writes it (the install step
+# then fails), so empty ones are written below.
 set(_lm_skip_install ${CMAKE_SKIP_INSTALL_RULES})
 set(CMAKE_SKIP_INSTALL_RULES ON)
 set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
@@ -83,6 +86,10 @@ FetchContent_Declare(nlohmann_json URL https://github.com/nlohmann/json/releases
     URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d)
 FetchContent_MakeAvailable(nlohmann_json)
 set(CMAKE_SKIP_INSTALL_RULES ${_lm_skip_install})
+foreach (_d mbedtls datachannel nlohmann_json)
+    file(WRITE ${FETCHCONTENT_BASE_DIR}/${_d}-build/cmake_install.cmake "# fetched dependency: not installed
+")
+endforeach ()
 
 
 # ---- Shared game/library compile environment -------------------------------

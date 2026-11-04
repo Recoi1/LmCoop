@@ -108,7 +108,22 @@ bool freeMovement(u32 self) {
 
 }  // namespace
 
+namespace {
+u32 sRemoteActor = 0;
+std::uint16_t sRemoteYaw = 0;
+float sRemoteAim = 0.5f;
+}  // namespace
+
+void setRemote(u32 actor, std::uint16_t yaw, float aim) {
+    sRemoteActor = actor, sRemoteYaw = yaw, sRemoteAim = std::clamp(aim, 0.0f, 1.0f);
+}
+
 void beforeUpdate(Ctx& c, u32 self) {
+    if (self && self == sRemoteActor && !ver::pal() && g_mem && freeMovement(self)) {
+        if (const u32 src = aimSource(self)) wrf32(src, sRemoteAim);
+        wrf32(self + 0x116C, 0.0f);  // their mouse is not pad input here either: no idle recentering
+        return;
+    }
     if (ver::pal() || !g_mem || self != localActor()) return;  // field offsets are the USA game's
     static u32 sTurnDone = 0, sPitchDone = 0;
     const float pixels = sPending.exchange(0.0f) + scripted("LM_TEST_TURN", sTurnDone);
@@ -140,6 +155,11 @@ void beforeUpdate(Ctx& c, u32 self) {
 }
 
 void afterUpdate(Ctx& c, u32 self) {
+    if (self && self == sRemoteActor && !ver::pal() && g_mem && freeMovement(self)) {
+        if (const u32 src = aimSource(self)) wrf32(src, sRemoteAim);
+        if (rd16(self + 0x88) != sRemoteYaw) setYaw(c, self, sRemoteYaw);
+        return;
+    }
     // The game turns him toward the way he walks; with a mouse the facing is the mouse's.
     if (ver::pal() || !g_mem || !sMouseSeen || !sYawOn || self != localActor() || !freeMovement(self)) return;
     if (sAimOn && !sStickPitch) {

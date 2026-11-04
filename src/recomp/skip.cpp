@@ -23,6 +23,7 @@
 #include "recomp/gx_bridge.h"
 #include "recomp/hle.h"
 #include "recomp/menu.h"
+#include "recomp/online.h"
 #include "recomp/version.h"
 
 #include <dolphin/pad.h>
@@ -90,7 +91,11 @@ const double sSpeed = [] {
 }();
 
 // Both releases: the European scene/event state has the same layout (addresses via VA()).
-bool enabled() { return sForceOn || port::settings().enhancements.skipCutscenes; }
+bool enabled() {
+    // A connected scene is watched on both PCs; local fast-forward would leave its partner behind.
+    if (online::connected() && (rd32(VA(0x804D80A0)) == 2 || rd32(VA(0x804D80A0)) == 4)) return false;
+    return sForceOn || port::settings().enhancements.skipCutscenes;
+}
 
 struct Status {
     u32 scene = 0;

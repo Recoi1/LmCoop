@@ -153,3 +153,10 @@ Other LAN cases on the working tree (which also holds unfinished, uncommitted cu
 CMake fetches libdatachannel (`v0.24.6`, submodules libjuice, plog, usrsctp only), MbedTLS
 (`mbedtls-3.6.7`) and nlohmann/json (3.11.3, hash-checked). Configure once with network access.
 Test helper: `powershell -File tools/build.ps1 -Target lm_rtc_test`.
+
+## 8. Cutscenes, aim and spawn (protocol 4)
+
+* The host chooses when a cinematic event starts (`online_events.cpp`); both PCs then run the game's own script and camera, dialogue is read independently, and choices and leaving the scene wait for both. The guest ignores event packets until it has joined the host's game (the host repeats them every 150 ms).
+* Mouse aim and mouse turning are not pad input, so the state packet also carries the player's facing (actor +0x88) and flashlight/vacuum aim; each PC applies them to its copy of the other player (`mouselook::setRemote`).
+* A joining player is placed 70 units beside the host's player, not inside it.
+* Tests added: `online-aim` (both PCs show the same aim and facing), `online-spawn` (host in another room, both players start there), `tools/recomp/online_protocol_test.cpp`. Not covered: dialogue choices, the opening and ending scenes, a spawn offset that lands in a wall.

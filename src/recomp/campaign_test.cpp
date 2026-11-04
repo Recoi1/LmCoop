@@ -2,6 +2,7 @@
 #include "recomp/campaign_test.h"
 #include <aurora/aurora.h>
 #include "recomp/coop.h"
+#include "recomp/online_events.h"
 #include "recomp/frame.h"
 #include "recomp/skip.h"
 #include "recomp/hle.h"
@@ -151,6 +152,7 @@ void snapshot() {
       << ",\"scene\":" << rd32(VA(0x804D80A0)) << ",\"map\":" << rd32(VA(0x804D80C8))
       << ",\"room\":" << (rd32(VA(0x803A3CA0) + 12) >> 24)
       << ",\"event\":" << rd32(VA(0x803D2D40) + 12) << ",\"transition\":" << rd32(VA(0x804D8088))
+      << ",\"event_number\":" << rd16(VA(0x803D2D40))
       << ",\"luigi\":" << (valid ? luigi : 0) << ",\"position\":[";
     for (int i = 0; i < 3; ++i) s << (i ? "," : "") << (valid ? rdf32(luigi + 0x44 + 4*i) : 0);
     s << "],\"hp\":" << (valid ? s16(rd16(luigi + 0xFC)) : -1)
@@ -167,8 +169,15 @@ void snapshot() {
             for (int k = 0; k < 3; k++) s << (k ? "," : "") << (p ? rdf32(p + 0x44 + 4 * k) : 0);
             s << "]";
         }
-        s << "],\"player_flags\":[" << rd32(coop::cachedPlayer(0) + 0x40) << "," << rd32(coop::cachedPlayer(1) + 0x40) << "]";
+        s << "],\"player_flags\":[" << rd32(coop::cachedPlayer(0) + 0x40) << "," << rd32(coop::cachedPlayer(1) + 0x40) << "]"
+          << ",\"player_rooms\":[" << (rd32(coop::cachedPlayer(0) + 0xB4) & 255) << "," << (rd32(coop::cachedPlayer(1) + 0xB4) & 255) << "]"
+          << ",\"player_aims\":[" << rdf32(coop::cachedPlayer(0) + 0x8AC) << "," << rdf32(coop::cachedPlayer(1) + 0x8AC) << "]"
+          << ",\"player_yaws\":[" << rd16(coop::cachedPlayer(0) + 0x88) << "," << rd16(coop::cachedPlayer(1) + 0x88) << "]";
     }
+    online::EventProgress event;
+    online::events::fill(event);
+    s << ",\"online_event\":" << event.serial << ",\"online_event_phase\":" << unsigned(event.phase)
+      << ",\"online_choice\":" << event.choice;
     s << ",\"function_total\":" << (g_module ? g_module->funcCount : 0) << "}\n";
     std::ofstream(dir() / "status.json") << s.str();
     if (reporting) {

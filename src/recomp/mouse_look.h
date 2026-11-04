@@ -63,5 +63,9 @@ void afterUpdate(Ctx& c, std::uint32_t self);
 // PADRead (hle_pad.cpp), after the input script and filters: with keyboard and mouse, W/A/S/D move
 // relative to the facing (fpsStick). Only after the mouse has been used.
 void stick(PADStatus* st, bool keyboard);
+// Online: the other player's actor on this PC takes that player's facing (angle as in actor +0x88) and aim
+// (0 to 1) instead of working them out from the 30 Hz pad alone (mouse turning and mouse aim are not pad
+// input). Applied around the actor's update; actor 0 stops it.
+void setRemote(std::uint32_t actor, std::uint16_t yaw, float aim);
 
 }  // namespace recomp::mouselook

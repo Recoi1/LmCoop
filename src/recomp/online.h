@@ -34,6 +34,9 @@ bool loading();
 void drawLoadingScreen();  // host thread, over the guest's boot/title/loading frames
 void noteSpawnEntry(u32 tool, int entry);
 void spawnValue(u32 tool, int entry, const char* field, u32 out);
+u32 world();
+bool captureGame(Ctx& c, GameState& game);
+void sendEvent(const SceneEvent& event);
 const char* status();  // "off", "waiting", "connected", "rejected: <why>", "disconnected"
 
 // The start menu's multiplayer screens (online_ui.cpp). Stay while the user is choosing; Start when

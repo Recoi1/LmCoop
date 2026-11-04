@@ -3,6 +3,7 @@
 // recomp/version.h); how each was found: docs/UNUSED_CONTENT.md.
 #include "recomp/dev_tools.h"
 #include "recomp/online.h"
+#include "recomp/online_events.h"
 
 #include "port/install.h"
 #include "port/settings.h"
@@ -191,7 +192,7 @@ HLE(fn_8000C188) {
     sLuigiFrames = 0;
     sSetupFrames = 0;
     sSuppressed.clear();
-    sVisit = sArrivalPending || online::joiningMap();  // warps and joins skip destination entry events
+    sVisit = sArrivalPending;  // online cinematic starts are chosen by the host below
     sArrivalPending = false;
     rooms::onMapSetup();
     coop::onMapSetup(c);  // unused 2-player mode: latched per map (coop.cpp)
@@ -210,7 +211,11 @@ HLE(fn_8000C188) {
 HLE(fn_8002B6D4) {
     const u32 trig = c.r[3];
     callOriginal(c, "fn_8002B6D4");
-    if (!sVisit || (!port::settings().enhancements.dbgWarpSkipEvents && !online::guest())) return;
+    if (online::wanted()) {
+        c.r[3] = online::events::condition(c, trig, c.r[3] == 1);
+        return;
+    }
+    if (!sVisit || !port::settings().enhancements.dbgWarpSkipEvents) return;
     bool held = false;
     for (u32 t : sSuppressed) held |= t == trig;
     if (!held && c.r[3] == 1 && sSetupFrames < kEntryWindow && rd32(trig + 0x10) != VA(0x8002C364)) {

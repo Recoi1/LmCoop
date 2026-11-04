@@ -5,6 +5,7 @@
 // (online_protocol.h) at 30 Hz; 5 s without a packet ends the session.
 #include "recomp/online.h"
 #include "recomp/online_config.h"
+#include "recomp/online_events.h"
 #include "recomp/online_transport.h"
 
 #include "port/dol.h"
@@ -139,6 +140,8 @@ PlayerState sLocalState{}, sRemote{};
 bool sHaveLocal = false, sHaveRemote = false;
 u32 sRemoteAge = 0;
 u32 sWorld = 0, sJoinedWorld = 0;
+bool sOpeningDone = false;
+u32 sOpeningTarget = 2;
 bool sNeedGame = false, sHaveGame = false, sLoadRequested = false;
 GameState sPendingGame{}, sLoadingGame{};
 u32 sSpawnTool = 0;
@@ -175,6 +178,7 @@ void closeSocket() {
     sSpawnTool = 0, sSpawnEntry = -1;
     sJoinedWorld = 0;
     sLocalState = {};
+    events::reset();
     sConnected = false;
 }
 
@@ -285,6 +289,10 @@ void receive() {
                 sPendingGame = game, sHaveGame = true;
             }
         }
+        if (h.kind == Kind::Event && sConnected && sActive.mode == Mode::Join) {
+            SceneEvent event{};
+            if (decodeEvent(body, bn, event)) events::receive(event);
+        }
         if (h.kind == Kind::State && sHaveRemote) {
             static std::string sLastName;
             if (sLastName != sRemote.name) sLastName = sRemote.name, log("[online] partner: %s", sRemote.name);
@@ -298,9 +306,10 @@ bool wanted() { return config().mode != Mode::Off; }
 int localIndex() { return sLocal.load(); }
 bool connected() { return sConnected.load(); }
 bool guest() { return localIndex() == 1; }
+u32 world() { return guest() ? sJoinedWorld : sWorld; }
 bool loading() {
     const auto stage = sJoinStage.load();
-    return stage != JoinStage::Off && stage != JoinStage::Playing;
+    return stage != JoinStage::Off && stage != JoinStage::Playing && !(connected() && events::busy());
 }
 bool joiningMap() { return guest() && sLoadRequested; }
 const PlayerState* remote() {
@@ -311,6 +320,7 @@ void setLocal(const PlayerState& s) {
     const PadState keep = sLocalState.pad;  // the pad comes from pad()
     sLocalState = s, sLocalState.pad = keep, sHaveLocal = true;
     sLocalState.world = guest() ? sJoinedWorld : sWorld;
+    events::fill(sLocalState.event);
     std::snprintf(sLocalState.name, kNameSize, "%s", sActive.name.c_str());
 }
 
@@ -379,6 +389,7 @@ void pad(PADStatus* st) {
         other.analogA = other.analogB = 0;
     }
     st[0].err = st[1].err = PAD_ERR_NONE;
+    events::pad(st, mine);
 }
 
 const char* status() {
@@ -423,11 +434,23 @@ void frame(Ctx& ctx) {
     if (wasConnected && std::chrono::duration<double>(now - sLastRecv).count() > kTimeout) {
         sConnected = false, sHaveRemote = false;
         sHaveGame = false;
+        events::reset();
         if (sActive.mode == Mode::Host) sHavePeer = false;  // a new client may join
         setStatus("disconnected (no packets for 5 s)");
         return;
     }
     if (sConnected) setStatus("connected to " + sNet->describe(sPeer));
+    events::frame(ctx);
+    events::fill(sLocalState.event);
+    sLocalState.scene = u8(rd32(kSceneId));
+    sLocalState.sceneDone = sOpeningDone;
+    const u32 scene = rd32(kSceneId);
+    const bool opening = settled() && scene >= 4 && scene <= 7 && (scene != 4 || rd32(0x804CFFAC) == 2);
+    if (opening) {
+        sHaveLocal = true;
+        sLocalState.world = world();
+        sLocalState.map = 2;
+    }
     if (!sConnected && sActive.mode == Mode::Join &&
         std::chrono::duration<double>(now - sLastHello).count() > kHelloEvery) {
         sendHello();
@@ -440,23 +463,13 @@ void frame(Ctx& ctx) {
     }
 
     const bool inGame = settled() && rd32(kSceneId) == 2;
-    if (!inGame) sHaveLocal = false, sLocalState.world = 0;
+    if (!inGame && !opening) sHaveLocal = false, sLocalState.world = 0;
     if (sActive.mode == Mode::Host) {
-        if (sNeedGame && sConnected && inGame && rd32(kEvent + 0xC) == 0 && rd32(0x804D80C4) == 0 &&
+        if (sNeedGame && sConnected && (opening || (inGame && (events::hostGame() || rd32(kEvent + 0xC) == 0))) && rd32(0x804D80C4) == 0 &&
             std::chrono::duration<double>(now - sLastGame).count() > kHelloEvery) {
-            const u32 p = coop::player(ctx, 0);
-            if (!p || !sWorld) return;
             GameState game{};
-            game.world = sWorld, game.map = u16(rd32(kMap)), game.room = u8(rd32(p + 0xB4));
-            game.hidden = rd32(0x804D80C0) != 0;
-            for (int k = 0; k < 3; k++) game.pos[k] = gu::rdf(p + 0x44 + 4 * k);
-            game.rotY = std::atan2(gu::rdf(p + 0xF48), gu::rdf(p + 0xF50));
-            static const u32 buffer = hleAlloc(kSaveSize);
-            std::memset(hostp(buffer), 0, kSaveSize);
-            gu::call(ctx, GU_SYM("fn_800AEEA8"), {p, 59, 0});  // flush live health, equipment and treasure to record
-            gu::call(ctx, GU_SYM("fn_80067108"), {buffer});
-            std::memcpy(game.save, hostp(buffer), kSaveSize);
-            std::memcpy(game.flags, hostp(kFlags), sizeof(game.flags));
+            if (const auto* beforeEvent = events::hostGame()) game = *beforeEvent;
+            else if (!captureGame(ctx, game)) return;
             u8 body[kGameWireSize];
             send(Kind::Game, body, encodeGame(game, body, sizeof(body)), sPeer);
             sNeedGame = false, sLastGame = now;
@@ -469,26 +482,27 @@ void frame(Ctx& ctx) {
         sJoinedWorld = 0;
         return;
     }
-    if (sHaveGame && !sLoadRequested && settled() && rd32(kSceneId) != 0) {
+    if (sHaveGame && !sLoadRequested && !events::busy() && settled() && rd32(kSceneId) != 0) {
         sLoadingGame = sPendingGame;
         sHaveGame = false, sLoadRequested = true;
         sJoinedWorld = 0;
         sJoinStage = JoinStage::Loading;
         wr32(0x804D872C, 0);
         wr32(kNextMap, sLoadingGame.map);  // teardown preserves the old current map until its resources are freed
-        wr32(kSceneControl + 4, 2);
+        wr32(kSceneControl + 4, sLoadingGame.scene);
         wr32(kSceneId, 0);  // normal scene teardown and reload, including main-game -> main-game
         log("[online] loading host game: world %u map %u room %u (no file select)",
             sLoadingGame.world, sLoadingGame.map, sLoadingGame.room);
         return;
     }
-    if (sLoadRequested && inGame && coop::player(ctx, 0) && coop::player(ctx, 1)) {
+    if (sLoadRequested && ((sLoadingGame.scene == scene && opening) || (sLoadingGame.scene == 2 && inGame && coop::player(ctx, 0) && coop::player(ctx, 1)))) {
         sJoinedWorld = sLoadingGame.world;
         sLoadRequested = false;
         sJoinStage = JoinStage::Playing;
         log("[online] entered player 1's game: world %u map %u room %u", sJoinedWorld, sLoadingGame.map, sLoadingGame.room);
+        if (sLoadingGame.scene == 4) log("[online] guest watching the opening cutscene");
     }
-    if (!sLoadRequested && (!sJoinedWorld || !sHaveRemote || sRemote.world != sJoinedWorld || !inGame)) {
+    if (!sLoadRequested && (!sJoinedWorld || !sHaveRemote || sRemote.world != sJoinedWorld || (!inGame && !opening))) {
         sJoinStage = JoinStage::Waiting;
         if (std::chrono::duration<double>(now - sLastGame).count() > kHelloEvery) {
             send(Kind::GameRequest, nullptr, 0, sPeer);
@@ -501,6 +515,7 @@ void frame(Ctx& ctx) {
 
 void beforeMapSetup(Ctx& ctx) {
     if (!joiningMap()) return;
+    events::mapSetup();
     static const u32 buffer = hleAlloc(kSaveSize);
     std::memcpy(hostp(buffer), sLoadingGame.save, kSaveSize);
     gu::call(ctx, GU_SYM("fn_80067050"), {buffer});
@@ -514,9 +529,13 @@ void beforeMapSetup(Ctx& ctx) {
     wr32(kMap, sLoadingGame.map);
 }
 
+constexpr float kSpawnGap = 70.0f;  // game units between the two players at a join
+
 void onMapSetup(Ctx& ctx) {
     if (ver::pal()) return;
+    sOpeningDone = false;
     if (localIndex() == 0) {
+        events::mapSetup();
         ++sWorld;
         sHaveLocal = false, sLocalState.world = 0;
     } else if (joiningMap()) {
@@ -524,12 +543,44 @@ void onMapSetup(Ctx& ctx) {
         for (int i = 0; i < 2; i++) {
             if (const u32 p = coop::player(ctx, i)) {
                 for (int k = 0; k < 3; k++) gu::wrf(p + 0x44 + 4 * k, sLoadingGame.pos[k]);
+                // Player 2 stands beside the host's player instead of inside it.
+                if (i == 1) gu::wrf(p + 0x44, sLoadingGame.pos[0] + std::cos(sLoadingGame.rotY) * kSpawnGap),
+                            gu::wrf(p + 0x4C, sLoadingGame.pos[2] - std::sin(sLoadingGame.rotY) * kSpawnGap);
                 gu::wrf(p + 0xF48, std::sin(sLoadingGame.rotY));
                 gu::wrf(p + 0xF50, std::cos(sLoadingGame.rotY));
             }
         }
         sSpawnTool = 0, sSpawnEntry = -1;
     }
+}
+
+bool captureGame(Ctx& ctx, GameState& game) {
+    const u32 scene = rd32(kSceneId);
+    if (!sWorld || (scene != 2 && (scene < 4 || scene > 7))) return false;
+    const u32 p = scene == 2 ? coop::player(ctx, 0) : 0;
+    if (scene == 2 && !p) return false;
+    game = {};
+    game.world = sWorld, game.scene = u8(scene), game.map = scene == 2 ? u16(rd32(kMap)) : 2;
+    game.rank = scene == 6 ? u8(rd32(0x804D8100)) : 0;
+    game.room = p ? u8(rd32(p + 0xB4)) : 0;
+    game.hidden = rd32(0x804D80C0) != 0;
+    if (p) {
+        for (int k = 0; k < 3; k++) game.pos[k] = gu::rdf(p + 0x44 + 4 * k);
+        game.rotY = std::atan2(gu::rdf(p + 0xF48), gu::rdf(p + 0xF50));
+    }
+    static const u32 buffer = hleAlloc(kSaveSize);
+    std::memset(hostp(buffer), 0, kSaveSize);
+    if (p) gu::call(ctx, GU_SYM("fn_800AEEA8"), {p, 59, 0});
+    gu::call(ctx, GU_SYM("fn_80067108"), {buffer});
+    std::memcpy(game.save, hostp(buffer), kSaveSize);
+    std::memcpy(game.flags, hostp(kFlags), sizeof(game.flags));
+    return true;
+}
+
+void sendEvent(const SceneEvent& event) {
+    if (!sNet || !sConnected || sActive.mode != Mode::Host) return;
+    u8 body[kEventWireSize];
+    send(Kind::Event, body, encodeEvent(event, body, sizeof(body)), sPeer);
 }
 
 void noteSpawnEntry(u32 tool, int entry) {
@@ -547,6 +598,47 @@ HLE(fn_8000BA4C) {
     if (guest() && rd32(0x804D80C4) == 5) wr32(0x804D80C4, 0);
     callOriginal(c, "fn_8000BA4C");
 }
+
+static void sceneSetup(Ctx& c, u32 scene, const char* symbol) {
+    if (wanted()) {
+        sOpeningDone = false;
+        setNameTag(false, 0, 0);
+        if (guest() && joiningMap()) {
+            beforeMapSetup(c);
+            std::memcpy(hostp(kFlags), sLoadingGame.flags, sizeof(sLoadingGame.flags));
+            if (scene == 4) wr32(0x804CFFAC, 2);
+            if (scene == 6) wr32(0x804D8100, sLoadingGame.rank);
+        } else if (localIndex() == 0 && (scene != 4 || rd32(0x804CFFAC) == 2)) {
+            events::mapSetup();
+            ++sWorld;
+            sHaveLocal = false, sLocalState.world = 0;
+        }
+    }
+    callOriginal(c, symbol);
+}
+
+static void sceneUpdate(Ctx& c, u32 scene, const char* symbol) {
+    if (!wanted() || (scene == 4 && rd32(0x804CFFAC) != 2)) return callOriginal(c, symbol);
+    const auto* p = remote();
+    if (connected() && (!p || p->scene != scene || p->world != world())) { c.r[3] = scene; return; }
+    if (!sOpeningDone) {
+        callOriginal(c, symbol);
+        if (c.r[3] != scene) sOpeningDone = true, sOpeningTarget = c.r[3];
+    }
+    if (sOpeningDone) {
+        // The guest leaves through the next host snapshot, so the opening is never torn down early.
+        c.r[3] = guest() || (connected() && (!p || !p->sceneDone)) ? scene : sOpeningTarget;
+    }
+}
+
+HLE(fn_8000CE58) { sceneSetup(c, 4, "fn_8000CE58"); }
+HLE(fn_8000CEF0) { sceneUpdate(c, 4, "fn_8000CEF0"); }
+HLE(fn_8000CFC8) { sceneSetup(c, 5, "fn_8000CFC8"); }
+HLE(fn_8000CFE8) { sceneUpdate(c, 5, "fn_8000CFE8"); }
+HLE(fn_8000D1CC) { sceneSetup(c, 6, "fn_8000D1CC"); }
+HLE(fn_8000D624) { sceneUpdate(c, 6, "fn_8000D624"); }
+HLE(fn_8000EF58) { sceneSetup(c, 7, "fn_8000EF58"); }
+HLE(fn_8000F020) { sceneUpdate(c, 7, "fn_8000F020"); }
 
 void drawLoadingScreen() {
     if (!loading()) return;

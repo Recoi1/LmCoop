@@ -176,6 +176,19 @@ fn_8005C760 us pal
 fn_8000C188 us pal
 fn_8000B4A0 us pal
 fn_8000BA4C
+fn_8000CE58
+fn_8000CEF0
+fn_8000CFC8
+fn_8000CFE8
+fn_8000D1CC
+fn_8000D624
+fn_8000EF58
+fn_8000F020
+fn_8002B7BC
+fn_80065DDC
+fn_80065F7C
+fn_8002BA54
+fn_800441C4
 fn_801D7114 us pal
 LMChangeFrameBuffer__Fv us pal
 # Warp arrivals hold back the destination's entry events (event trigger condition check).
