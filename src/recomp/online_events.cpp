@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string_view>
 
@@ -27,6 +28,12 @@ bool sTeleported = false, sDeferredScene = false, sOriginalTimed = false;
 std::atomic<bool> sBusy{false};
 using Clock = std::chrono::steady_clock;
 Clock::time_point sSent;
+
+// LM_ONLINE_NOEVENTS=1 (test aid): no shared cutscenes, each PC plays its own events
+bool eventsOn() {
+    static const bool off = std::getenv("LM_ONLINE_NOEVENTS") != nullptr;
+    return !off && wanted();
+}
 
 bool cinematic(u16 number) {
     static std::array<int, 110> cache{};
@@ -85,7 +92,7 @@ void reset() {
 }
 bool busy() { return sBusy.load(); }
 bool holdPlayers() {
-    if (!wanted() || !active() || (guest() && !sTeleported)) return false;
+    if (!eventsOn() || !active() || (guest() && !sTeleported)) return false;
     const u32 p = coop::cachedPlayer(0);
     return sProgress.phase <= EventPhase::Prepared || sProgress.phase == EventPhase::Ending ||
            sDeferredScene || rd32(0x804D8088) != 0 || (p && (rd32(p + 0x40) & 0x10));
@@ -118,7 +125,7 @@ bool condition(Ctx& c, u32 trigger, bool eligible) {
         log("[online-event] guest trigger check serial %u active %u moved %u phase %u cinematic %u index %d",
             trace, active(), sTeleported, unsigned(sProgress.phase), cinematic(rd16(trigger + 0x38)), indexOf(trigger));
     }
-    if (!wanted() || indexOf(trigger) < 0 || !cinematicTrigger(trigger)) return eligible;
+    if (!eventsOn() || indexOf(trigger) < 0 || !cinematicTrigger(trigger)) return eligible;
     if (guest()) return active() && sTeleported && trigger == sTrigger && sProgress.phase == EventPhase::None;
     if (active()) {
         if (trigger != sTrigger) return false;
@@ -140,7 +147,7 @@ bool condition(Ctx& c, u32 trigger, bool eligible) {
 }
 
 void frame(Ctx& c) {
-    if (!wanted()) return;
+    if (!eventsOn()) return;
     if (!guest()) {
         const auto now = Clock::now();
         if (active() && connected() && now - sSent > std::chrono::milliseconds(150)) sendEvent(sEvent), sSent = now;
@@ -200,7 +207,7 @@ HLE(fn_8002B7BC) {
 }
 HLE(fn_80065DDC) {
     callOriginal(c, "fn_80065DDC");
-    if (!wanted() || rd32(kCurrent) != sTrigger || !active()) return;
+    if (!eventsOn() || rd32(kCurrent) != sTrigger || !active()) return;
     sScriptBase = rd32(kScript + 0xC);
     sProgress.phase = guest() ? EventPhase::Prepared : EventPhase::Playing;
     log("[online-event] %s event %u serial %u (script ready)", guest() ? "guest prepared" : "host playing", sEvent.number, sEvent.serial);
@@ -210,7 +217,7 @@ HLE(fn_80065F7C) {
     callOriginal(c, "fn_80065F7C");
 }
 HLE(fn_8002BA54) {
-    if (!wanted() || c.r[3] != sTrigger || !active()) return callOriginal(c, "fn_8002BA54");
+    if (!eventsOn() || c.r[3] != sTrigger || !active()) return callOriginal(c, "fn_8002BA54");
     if (!guest()) {
         sProgress.phase = EventPhase::Ending;
         if (connected() && (!peer() || peer()->phase != EventPhase::Finished)) return;
@@ -223,7 +230,7 @@ HLE(fn_8002BA54) {
 }
 HLE(fn_800441C4) {
     callOriginal(c, "fn_800441C4");
-    if (!wanted() || !active() || !sScriptBase || rd32(kScript + 0x1C) != 7) return;
+    if (!eventsOn() || !active() || !sScriptBase || rd32(kScript + 0x1C) != 7) return;
     const u32 offset = rd32(kScript + 0xC) - sScriptBase;
     if (offset > 0x100000) return;
     if (guest()) {

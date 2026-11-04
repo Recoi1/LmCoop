@@ -328,6 +328,17 @@ void syncOnline(u32 p1, u32 p2, bool hold) {
     s.aim = u8(std::lround(std::clamp(gu::rdf(me + 0x8AC), 0.0f, 1.0f) * 255.0f));
     online::setLocal(s);
 
+    if (static const bool sTrace = std::getenv("LM_ONLINE_TRACE") != nullptr; sTrace) {  // test aid: where everyone is
+        static u32 n = 0;
+        if (n++ % 15 == 0 && n < 1500) {
+            const online::PlayerState* rr = online::remote();
+            const u32 o = other;
+            log("[trace] f%u me=%d p1(%.0f,%.0f,%.0f) p2(%.0f,%.0f,%.0f) remote(%.0f,%.0f,%.0f) hold %d", skip::guestFrames(), li,
+                gu::rdf(p1 + 0x44), gu::rdf(p1 + 0x48), gu::rdf(p1 + 0x4C), gu::rdf(p2 + 0x44), gu::rdf(p2 + 0x48), gu::rdf(p2 + 0x4C),
+                rr ? rr->pos[0] : 0.f, rr ? rr->pos[1] : 0.f, rr ? rr->pos[2] : 0.f, int(hold));
+            (void)o;
+        }
+    }
     if (hold) return void(mouselook::setRemote(0, 0, 0.5f));  // the local event script owns Luigi's pose and camera while both PCs watch it
 
     const online::PlayerState* r = online::remote();
@@ -389,6 +400,13 @@ u32 cachedPlayer(int idx) {
 }
 
 HLE(fn_800112F8) {
+    if (static const bool sTrace2 = std::getenv("LM_POS_TRACE") != nullptr; sTrace2) {  // test aid: the players' positions in every mode
+        static u32 n = 0;
+        const u32 a = player(c, 0), b = player(c, 1);
+        if (a && n++ % 15 == 0 && n < 3000)
+            log("[pos] f%u map %u room %u p1(%.0f,%.0f,%.0f) p2(%.0f,%.0f,%.0f)", skip::guestFrames(), rd32(kCurMapNo), rd32(a + 0xB4), gu::rdf(a + 0x44),
+                gu::rdf(a + 0x48), gu::rdf(a + 0x4C), b ? gu::rdf(b + 0x44) : 0.f, b ? gu::rdf(b + 0x48) : 0.f, b ? gu::rdf(b + 0x4C) : 0.f);
+    }
     if (sEventHoldReset) {
         sEventHoldReset = false;
         sEventHold = false;
@@ -409,7 +427,16 @@ HLE(fn_800112F8) {
         }
         sEventHold = hold;
         if (hold && !off(0x20)) {  // with player 1 wherever the script puts them
-            for (u32 o = 0x44; o < 0x50; o += 4) wr32(p2 + o, rd32(p1 + o));
+            // Only when player 2 was left behind, and then beside player 1, never on the same spot: with player 2 pinned
+            // exactly on player 1 every frame, player 1 was pushed sideways (at the start of an online game Luigi slid
+            // across the foyer into the wall).
+            const float dx = gu::rdf(p2 + 0x44) - gu::rdf(p1 + 0x44), dy = gu::rdf(p2 + 0x48) - gu::rdf(p1 + 0x48),
+                        dz = gu::rdf(p2 + 0x4C) - gu::rdf(p1 + 0x4C);
+            if (dx * dx + dz * dz > 100.0f * 100.0f || std::fabs(dy) > 200.0f) {
+                gu::wrf(p2 + 0x44, gu::rdf(p1 + 0x44) + 90.0f);
+                wr32(p2 + 0x48, rd32(p1 + 0x48));
+                wr32(p2 + 0x4C, rd32(p1 + 0x4C));
+            }
         }
         if (p1 && p2 && !off(0x40)) mergeProgress(p1, p2);
         if (p1 && p2) retargetObjects(c);  // the player an object deals with (below)
