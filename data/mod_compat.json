@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "about": "What the LmCoop developers have tested. status: verified (works), partial (works for part of the mod), broken. Mods not listed are untested. Keyed by GameBanana mod id.",
+  "mods": {
+    "552512": {
+      "status": "verified",
+      "note": "Dolphin-style texture pack: installs from the Mods screen and repaints the foyer, Luigi and the HUD (tested with LmCoop 1.6.0, 2,355 textures; only the first rooms were looked at)."
+    },
+    "578253": {
+      "status": "partial",
+      "note": "Loose game files (288): installs from the Mods screen and the game serves them (the mansion map, the game archive, the intro cutscenes); the foyer loaded and showed the changes. Other rooms were not tested."
+    },
+    "525393": {
+      "status": "partial",
+      "note": "Wega's Freaky Mansion: its playable Luigi and his voice banks work through a character pack (tested with LmCoop 1.5.0, USA disc). Cutscene models and the rest of the mod are not used."
+    }
+  }
+}

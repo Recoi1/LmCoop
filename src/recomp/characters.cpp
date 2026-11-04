@@ -7,6 +7,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -149,6 +150,16 @@ std::string selected() {
 void select(const std::string& id) {
     std::lock_guard lk(sM);
     sChoice = id;
+}
+
+bool remove(const std::string& id) {
+    for (char c : id)
+        if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-')) return false;  // a folder name, nothing else
+    if (id.empty() || id == "luigi" || id == "env") return false;
+    std::error_code ec;
+    const bool gone = fs::remove_all(port::dataDir() / "characters" / id, ec) > 0 && !ec;
+    if (gone && selected() == id) select("luigi");
+    return gone;
 }
 
 bool drawSelect(float scale) {

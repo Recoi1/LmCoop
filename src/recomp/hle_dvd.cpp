@@ -4,6 +4,7 @@
 #include "recomp/room_swap.h"
 #include "recomp/unused_maps.h"
 #include "recomp/characters.h"
+#include "recomp/texture_packs.h"
 #include "recomp/unused2.h"
 #include "recomp/hle.h"
 #include "recomp/runtime.h"
@@ -41,16 +42,18 @@ s32 ovEntry(const char* path) {
     if (e < 0) e = unused2::overlayEntry(path);
     if (e < 0) e = unused_maps::overlayEntry(path);
     if (e < 0) e = characters::overlayEntry(path);
+    if (e < 0) e = texpacks::fileOverlayEntry(path);
     return e >= 0 ? e : hm::overlayEntry(path);
 }
 bool ovIs(s32 e) {
-    return rooms::isOverlayEntry(e) || unused2::isOverlayEntry(e) || unused_maps::isOverlayEntry(e) || characters::isOverlayEntry(e) || hm::isOverlayEntry(e);
+    return rooms::isOverlayEntry(e) || unused2::isOverlayEntry(e) || unused_maps::isOverlayEntry(e) || characters::isOverlayEntry(e) || texpacks::isFileOverlay(e) || hm::isOverlayEntry(e);
 }
 u32 ovLength(s32 e) {
     if (rooms::isOverlayEntry(e)) return rooms::overlayLength(e);
     if (unused2::isOverlayEntry(e)) return unused2::overlayLength(e);
     if (unused_maps::isOverlayEntry(e)) return unused_maps::overlayLength(e);
     if (characters::isOverlayEntry(e)) return characters::overlayLength(e);
+    if (texpacks::isFileOverlay(e)) return texpacks::fileOverlayLength(e);
     return hm::overlayLength(e);
 }
 s32 ovRead(s32 e, void* dst, s32 len, s32 off) {
@@ -58,6 +61,7 @@ s32 ovRead(s32 e, void* dst, s32 len, s32 off) {
     if (unused2::isOverlayEntry(e)) return unused2::overlayRead(e, dst, len, off);
     if (unused_maps::isOverlayEntry(e)) return unused_maps::overlayRead(e, dst, len, off);
     if (characters::isOverlayEntry(e)) return characters::overlayRead(e, dst, len, off);
+    if (texpacks::isFileOverlay(e)) return texpacks::fileOverlayRead(e, dst, len, off);
     return hm::overlayRead(e, dst, len, off);
 }
 

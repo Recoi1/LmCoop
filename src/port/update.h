@@ -10,7 +10,10 @@
 // All work happens on a worker thread; the start screen polls state() every frame.
 // Test overrides: LM_UPDATE_FEED=<https/http://localhost URL, file:// URL or file path> (release
 // JSON object or array instead of the GitHub API), LM_UPDATE_VERSION=<pretend current version>.
+#include <atomic>
 #include <cstdint>
+#include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -89,5 +92,14 @@ void cleanupAfterUpdate();
 
 // Version comparison: -1 / 0 / 1 (a < b, equal, a > b). "v1.1" == "1.1.0" < "1.1.1".
 int compareVersions(const std::string& a, const std::string& b);
+
+// A small https GET for JSON (the mod browser): the body, or false with `error`. Bodies over maxBytes fail.
+bool fetchText(const std::string& url, std::string& body, std::string& error, size_t maxBytes);
+
+// The mod installer's downloads: https only, every hop's host must pass hostOk; bytes so far in `got`; stop with
+// `cancel`. And unpacking with the system's tar: "" or the reason.
+bool downloadFile(const std::string& url, const std::filesystem::path& dest, const std::function<bool(const std::string&)>& hostOk,
+                  std::atomic<std::uint64_t>& got, const std::atomic<bool>& cancel, std::string& error);
+std::string extractArchive(const std::filesystem::path& archive, const std::filesystem::path& dest);
 
 }  // namespace port::update

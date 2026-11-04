@@ -18,6 +18,7 @@ struct Info {
 std::vector<Info> available();       // "luigi" (the original game) first, then every installed pack
 std::string selected();              // the saved choice; "luigi" when none or when its pack is gone
 void select(const std::string& id);  // saved with the settings
+bool remove(const std::string& id);  // deletes the installed pack's folder (the choice falls back to Luigi)
 bool drawSelect(float scale);        // ImGui: one button per character. True when the choice changed.
 
 // Host-served disc files while a pack is selected (hle_dvd.cpp).

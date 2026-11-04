@@ -12,6 +12,8 @@
 #include "port/update.h"
 #include "recomp/menu.h"
 #include "recomp/characters.h"
+#include "recomp/mods.h"
+#include "recomp/texture_packs.h"
 #include "recomp/online.h"
 #include "setup/module_builder.h"
 
@@ -194,7 +196,7 @@ void browse(int slot, const std::string& current) {
                            dir.empty() ? nullptr : dir.c_str(), false);
 }
 
-enum class Screen { Pick, Working, Shaders, Failed, Start, Single, Multiplayer, Settings, Updates };
+enum class Screen { Pick, Working, Shaders, Failed, Start, Single, Multiplayer, Mods, Settings, Updates };
 
 }  // namespace
 
@@ -255,6 +257,11 @@ bool run(const Options& opts, LaunchInfo& launch) {
         if (c == "single" || (c.empty() && opts.autoStart)) return choose(0);
         if (c == "host") return choose(1);
         if (c == "join") return choose(2);
+        if (c == "mods") {  // test aid: straight to the mod browser
+            screen = Screen::Mods;
+            recomp::mods::refresh();
+            return;
+        }
         if (c == "multiplayer") {  // test aid: straight to the multiplayer screens (LM_LOBBY_AUTO drives them)
             screen = Screen::Multiplayer;
             return;
@@ -340,7 +347,7 @@ bool run(const Options& opts, LaunchInfo& launch) {
         const bool panel = screen == Screen::Settings || screen == Screen::Updates;
         if (!panel) {
             ImGui::Dummy(ImVec2(0, ImGui::GetWindowHeight() * 0.12f));
-            if (!(screen == Screen::Multiplayer && recomp::online::lobbyScreenOpen())) drawLogo();  // the lobby needs the room
+            if (!(screen == Screen::Multiplayer && recomp::online::lobbyScreenOpen()) && screen != Screen::Mods) drawLogo();  // the lobby and the mod list need the room
             ImGui::Dummy(ImVec2(0, 24 * scale));
         }
         const ImVec4 red(1.0f, 0.45f, 0.4f, 1), grey(0.6f, 0.6f, 0.6f, 1);
@@ -392,6 +399,10 @@ bool run(const Options& opts, LaunchInfo& launch) {
                 else choose(0);
             }
             if (bigButton("Multiplayer")) screen = Screen::Multiplayer;
+            if (bigButton("Mods")) {
+                screen = Screen::Mods;
+                recomp::mods::refresh();
+            }
             if (bigButton("Settings")) {
                 settingsReturn = Screen::Start;
                 screen = Screen::Settings;
@@ -417,6 +428,89 @@ bool run(const Options& opts, LaunchInfo& launch) {
                 port::saveSettings();  // remembers the choice
                 choose(0);
             }
+            if (centeredButton("Back")) screen = Screen::Start;
+        } else if (screen == Screen::Mods) {
+            // Mod browser: Luigi's Mansion on GameBanana, with what the LmCoop developers tested.
+            recomp::texpacks::pump();
+            const auto st = recomp::mods::state();
+            const auto ins = recomp::texpacks::installState();
+            ImGui::Dummy(ImVec2(0, 4 * scale));
+            centeredText("MODS");
+            centeredText(st.busy ? "Loading from GameBanana..."
+                         : !st.error.empty() ? ("Could not load the list: " + st.error).c_str()
+                         : st.loaded ? "Luigi's Mansion on GameBanana. Verified = works with LmCoop (tested by its developers); untested ones may not."
+                                     : "",
+                         grey);
+            ImGui::Dummy(ImVec2(0, 4 * scale));
+            const float listH = std::max(120.0f * scale, ImGui::GetContentRegionAvail().y - 150 * scale);
+            ImGui::SetCursorPosX(ImGui::GetWindowWidth() * 0.1f);
+            if (ImGui::BeginChild("##modlist", ImVec2(ImGui::GetWindowWidth() * 0.8f, listH), false)) {
+                for (const auto& m : st.mods) {
+                    ImGui::PushID(m.id);
+                    const bool ok = m.status == "verified", part = m.status == "partial", bad = m.status == "broken";
+                    const ImVec4 col = ok ? ImVec4(0.4f, 0.9f, 0.5f, 1) : part ? ImVec4(1.0f, 0.8f, 0.3f, 1) : bad ? ImVec4(1.0f, 0.4f, 0.4f, 1) : ImVec4(0.55f, 0.55f, 0.55f, 1);
+                    ImGui::TextColored(col, "[%s]", ok ? "Verified" : part ? "Partial" : bad ? "Broken" : "Untested");
+                    ImGui::SameLine();
+                    ImGui::TextUnformatted(m.name.c_str());
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("by %s, %s, %d likes", m.author.c_str(), m.category.c_str(), m.likes);
+                    ImGui::SameLine();
+                    if (recomp::menu::SmallButton("Open page")) recomp::mods::openPage(m.url);
+                    if (m.category == "Textures" || m.category == "Skins") {  // may be a Dolphin-style texture pack
+                        ImGui::SameLine();
+                        const bool mine = ins.modId == m.id && (ins.stage == recomp::texpacks::Stage::Resolving || ins.stage == recomp::texpacks::Stage::Downloading || ins.stage == recomp::texpacks::Stage::Unpacking);
+                        const bool busy = ins.stage == recomp::texpacks::Stage::Resolving || ins.stage == recomp::texpacks::Stage::Downloading || ins.stage == recomp::texpacks::Stage::Unpacking;
+                        if (mine) {
+                            const char* what = ins.stage == recomp::texpacks::Stage::Unpacking ? "unpacking..." : ins.stage == recomp::texpacks::Stage::Downloading ? "downloading" : "contacting GameBanana...";
+                            if (ins.stage == recomp::texpacks::Stage::Downloading && ins.total) ImGui::TextDisabled("%s %llu / %llu MB", what, (unsigned long long)(ins.got >> 20), (unsigned long long)(ins.total >> 20));
+                            else ImGui::TextDisabled("%s", what);
+                            ImGui::SameLine();
+                            if (recomp::menu::SmallButton("Cancel")) recomp::texpacks::cancelInstall();
+                        } else if (recomp::texpacks::installedFromMod(m.id)) {
+                            ImGui::TextDisabled("installed");
+                        } else if (!busy && recomp::menu::SmallButton("Install")) {
+                            recomp::texpacks::install(m.id, m.name);
+                        }
+                    }
+                    if (!m.note.empty()) {
+                        ImGui::PushTextWrapPos(0);
+                        ImGui::TextDisabled("    %s", m.note.c_str());
+                        ImGui::PopTextWrapPos();
+                    }
+                    ImGui::PopID();
+                }
+            }
+            ImGui::EndChild();
+            ImGui::Dummy(ImVec2(0, 4 * scale));
+            if (ins.stage == recomp::texpacks::Stage::Done) centeredText(ins.message.c_str(), ImVec4(0.4f, 0.9f, 0.5f, 1));
+            else if (ins.stage == recomp::texpacks::Stage::Failed) centeredText(("Install failed: " + ins.message).c_str(), red);
+            else centeredText("Texture packs install from here (Install). Other mods: Open page. Character packs: docs/CHARACTERS.md.", grey);
+            for (const auto& t : recomp::texpacks::installed()) {
+                ImGui::SetCursorPosX(ImGui::GetWindowWidth() * 0.1f);
+                ImGui::Text("Texture pack: %s", t.name.c_str());
+                ImGui::SameLine();
+                if (recomp::menu::SmallButton(((t.enabled ? "Disable##t" : "Enable##t") + t.id).c_str())) recomp::texpacks::setEnabled(t.id, !t.enabled);
+                ImGui::SameLine();
+                static std::string pendingTex;  // the second click deletes
+                if (pendingTex == t.id) {
+                    if (recomp::menu::SmallButton(("Really delete?##t" + t.id).c_str())) recomp::texpacks::remove(t.id), pendingTex.clear();
+                } else if (recomp::menu::SmallButton(("Remove##t" + t.id).c_str())) {
+                    pendingTex = t.id;
+                }
+            }
+            for (const auto& c : recomp::characters::available()) {
+                if (c.id == "luigi" || c.id == "env") continue;
+                ImGui::SetCursorPosX(ImGui::GetWindowWidth() * 0.1f);
+                ImGui::Text("Installed: %s", c.name.c_str());
+                ImGui::SameLine();
+                static std::string pendingRemove;  // the second click deletes
+                if (pendingRemove == c.id) {
+                    if (recomp::menu::SmallButton(("Really delete this pack?##" + c.id).c_str())) recomp::characters::remove(c.id), pendingRemove.clear();
+                } else if (recomp::menu::SmallButton(("Remove##" + c.id).c_str())) {
+                    pendingRemove = c.id;
+                }
+            }
+            if (centeredButton("Refresh")) recomp::mods::refresh();
             if (centeredButton("Back")) screen = Screen::Start;
         } else if (screen == Screen::Multiplayer) {
             using recomp::online::MenuResult;

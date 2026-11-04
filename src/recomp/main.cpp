@@ -31,6 +31,7 @@
 #include "recomp/module_loader.h"
 #include "recomp/online.h"
 #include "recomp/precache.h"
+#include "recomp/texture_packs.h"
 #include "recomp/runtime.h"
 #include "recomp/sched.h"
 #include "recomp/widescreen.h"
@@ -310,6 +311,7 @@ int main(int argc, char* argv[]) {
     // Shown name only: config.appName above also names Aurora's data/cache folders, which stay as they were.
     if (SDL_Window* w = aurora_get_window()) SDL_SetWindowTitle(w, "LmCoop");
     mem::trackInit();  // LM_MEM_TRACK (test aid, docs/RENDERING.md "Memory use over time")
+    texpacks::apply();  // the enabled texture packs (texture_packs.h)
     if (topmost)
         if (SDL_Window* w = aurora_get_window()) SDL_SetWindowAlwaysOnTop(w, true);
     // LM_OFFSCREEN=1 (testing: automated runs on a machine someone is using): the window is moved far

@@ -1781,4 +1781,105 @@ void cleanupAfterUpdate() {
     }).detach();
 }
 
+bool fetchText(const std::string& url, std::string& body, std::string& error, size_t maxBytes) {
+    Url u;
+    if (!parseUrl(url, u) || u.scheme != "https") {
+        error = "only https addresses are fetched";
+        return false;
+    }
+    body.clear();
+    Response r;
+    const bool ok = httpGet(url, {"Accept: application/json"}, 8000, 20000,
+                            [&](const char* p, size_t n) {
+                                if (body.size() + n > maxBytes) return false;
+                                body.append(p, n);
+                                return true;
+                            },
+                            r);
+    if (!ok || r.status != 200) {
+        error = !r.error.empty() ? r.error : "HTTP " + std::to_string(r.status);
+        return false;
+    }
+    return true;
+}
+
+bool downloadFile(const std::string& url0, const fs::path& dest, const std::function<bool(const std::string&)>& hostOk,
+                  std::atomic<std::uint64_t>& got, const std::atomic<bool>& cancel, std::string& error) {
+    std::error_code ec;
+    fs::create_directories(dest.parent_path(), ec);
+    std::string url = url0;
+    got = 0;
+    for (int hop = 0; hop < 6; hop++) {
+        Url u;
+        if (!parseUrl(url, u) || u.scheme != "https" || !hostOk(u.host)) {
+            error = "refused: the download points to " + (u.host.empty() ? url : u.host);
+            return false;
+        }
+        std::FILE* f = nullptr;
+#ifdef _WIN32
+        _wfopen_s(&f, dest.wstring().c_str(), L"wb");
+#else
+        f = std::fopen(dest.c_str(), "wb");
+#endif
+        if (!f) {
+            error = "could not write " + utf8(dest);
+            return false;
+        }
+        bool writeErr = false;
+        got = 0;
+        Response r;
+        const bool ok = httpGet(url, {"Accept: */*"}, 30000, 0,
+                                [&](const char* d, size_t n) {
+                                    if (cancel) return false;
+                                    if (std::fwrite(d, 1, n, f) != n) return writeErr = true, false;
+                                    got += n;
+                                    return true;
+                                },
+                                r);
+        std::fclose(f);
+        if (cancel) {
+            error = "cancelled";
+            return false;
+        }
+        if (writeErr) {
+            error = "writing the download failed (disk full?)";
+            return false;
+        }
+        if (r.status >= 300 && r.status < 400 && !r.header("location").empty()) {
+            url = r.header("location");
+            continue;
+        }
+        if (!ok || r.status != 200) {
+            error = !r.error.empty() ? r.error : "HTTP " + std::to_string(r.status);
+            return false;
+        }
+        return true;
+    }
+    error = "too many redirects";
+    return false;
+}
+
+// Unpacks .zip / .7z / .rar with the system tar (Windows 10 and later: bsdtar reads all three). A plain, short
+// destination path: tar is not long-path aware. Links inside are refused.
+std::string extractArchive(const fs::path& archive, const fs::path& dest) {
+    std::error_code ec;
+    fs::create_directories(dest, ec);
+    int rc = -1;
+#ifdef _WIN32
+    wchar_t sys[MAX_PATH];
+    const UINT n = GetSystemDirectoryW(sys, MAX_PATH);
+    if (!n || n >= MAX_PATH) return "this Windows has no system folder?";
+    const std::wstring tar = std::wstring(sys, n) + L"\\tar.exe";
+    if (!fs::exists(tar, ec)) return "this Windows has no tar.exe (Windows 10 1803 or newer is needed)";
+    rc = runTool(tar, L"-xf \"" + port::plainPath(archive).wstring() + L"\" -C \"" + port::plainPath(dest).wstring() + L"\"", dest);
+#else
+    if (archive.extension() == ".zip") rc = runTool({"unzip", "-o", "-q", archive.string(), "-d", dest.string()}, dest);
+    else rc = runTool({"tar", "-xf", archive.string(), "-C", dest.string(), "--no-same-owner"}, dest);
+#endif
+    if (rc != 0) return "unpacking failed (exit " + std::to_string(rc) + "); this archive type may not be supported";
+    for (auto it = fs::recursive_directory_iterator(dest, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
+        if (it->is_symlink(ec)) return "the archive contains a link (" + utf8(it->path().filename()) + "); refused";
+    return {};
+}
+
 }  // namespace port::update
