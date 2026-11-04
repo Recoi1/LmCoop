@@ -43,6 +43,11 @@ repository. The GitHub token is a Worker secret; the game holds no credential. S
 The game finds the Worker's address in `data/crash_inbox.json` (read from GitHub when a player presses Send), so the
 inbox can be moved without a release. **Until `url` is filled in, the prompt does not offer to send.**
 
+## Fixing them
+
+New crash issues are grouped by signature and investigated automatically, producing a draft pull request for review:
+see CRASH_FIXES.md.
+
 ## Testing
 
 * `server/crash-inbox`: `npm test` (the Worker with a fake store and a fake GitHub).

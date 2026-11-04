@@ -43,18 +43,57 @@ export function validate(body) {
   };
 }
 
+// The same bug gives the same signature, so duplicates are grouped and a fix is tried once. It reads the end of the
+// log, where the game's crash handler prints (src/port/crash_handler.cpp):
+//   === exception 0xC0000005 at <address> (LmCoop.exe+0x1EC88D3), rsp ... ===     the faulting address (a build-specific offset)
+//   === crash: <reason> ===
+//     thread N, raw frames:   #00 LmCoop.exe+0x1ec88d3 ...                      module+offset, build-specific
+//   then the same frames symbolized: #00 recomp::online::frame+0x12 (online.cpp:402)   names, only when symbols are present
+// Function names are stable across builds, so they win; the handler's own frames are skipped. Without them it is the
+// faulting address (or the raw frames after the handler's) together with the version. When unsure it keeps reports
+// apart: two reports wrongly joined would hide a bug, two wrongly split only cost a second look.
+const HANDLER = /printStack|crash_handler|signalHandler|vectoredHandler|unhandled|terminate|abort|RtlUserThreadStart|BaseThreadInitThunk|KiUserExceptionDispatch|RtlDispatchException|^ntdll|^KERNEL/i;
+
+export async function signatureOf(r) {
+  const at = r.log.search(/=== (crash|exception)/);
+  const tail = at >= 0 ? r.log.slice(at, at + 8000) : '';
+  const exc = tail.match(/=== exception (0x[0-9A-Fa-f]{8}) at [0-9A-Fa-f]+ \(([\w.\-]+\+0x[0-9A-Fa-f]+)\)/);
+  const code = (exc && exc[1]) || (tail.match(/=== crash: ([^=\n]{1,60}) ===/) || [, r.reason])[1] || 'unknown';
+
+  // the frame lines, split into the raw block and the symbolized block (the numbering starts again at #00)
+  const lines = [...tail.matchAll(/^\s*#(\d+)\s+(\S[^\n]*)$/gm)].map((m) => ({ n: Number(m[1]), text: m[2].trim() }));
+  const second = lines.findIndex((l, i) => i > 0 && l.n === 0);
+  const raw = second > 0 ? lines.slice(0, second) : lines;
+  const sym = second > 0 ? lines.slice(second) : [];
+  const names = sym
+    .map((l) => l.text.replace(/\+0x[0-9a-fA-F]+.*$/, '').trim())
+    .filter((n) => n && !n.startsWith('?') && !HANDLER.test(n))
+    .slice(0, 3);
+
+  let key;
+  if (names.length) key = `${code}|${names.join('|')}`;
+  else if (exc) key = `${code}|${exc[2]}|${r.version}`;
+  else key = `${code}|${raw.slice(4, 7).map((l) => l.text).join('|')}|${r.version}`;
+
+  const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(key))))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 10);
+  return { sig: hash, code, frames: names, at: exc ? exc[2] : '' };
+}
+
 // A fence longer than any run of backticks in the text, so a log cannot break out of its code block.
 function fence(text) {
   const runs = text.match(/`+/g) || [];
   return '`'.repeat(Math.max(3, ...runs.map((r) => r.length + 1)));
 }
 
-export function issueBody(r, seq) {
+export function issueBody(r, seq, sig = '') {
   const tail = r.log.length > ISSUE_LOG ? '[...earlier log in the stored report...]\n' + r.log.slice(-ISSUE_LOG) : r.log;
   const f = fence(tail);
   const mods = r.mods.length ? r.mods.map((m) => `- ${m.name}${m.version ? ' ' + m.version : ''}${m.kind ? ' (' + m.kind + ')' : ''}`).join('\n') : 'none';
   return [
-    `Report #${seq} (id \`${r.id}\`)`,
+    `Report #${seq} (id \`${r.id}\`)${sig ? ` - signature \`sig-${sig}\`` : ''}`,
     '',
     `| | |`,
     `|---|---|`,
@@ -116,11 +155,12 @@ export async function handle(request, env, fetchFn = fetch) {
 
   let number = seq;
   let issue = false;
+  let duplicate = false;
+  const { sig, code, frames, at: faultAt } = await signatureOf(r);
   if (env.GITHUB_TOKEN && env.GITHUB_REPO) {
-    try {
-      const reason = r.reason || 'crash';
-      const res = await fetchFn(`https://api.github.com/repos/${env.GITHUB_REPO}/issues`, {
-        method: 'POST',
+    const gh = (path, init = {}) =>
+      fetchFn(`https://api.github.com${path}`, {
+        ...init,
         headers: {
           authorization: `Bearer ${env.GITHUB_TOKEN}`,
           accept: 'application/vnd.github+json',
@@ -128,18 +168,39 @@ export async function handle(request, env, fetchFn = fetch) {
           'user-agent': 'lmcoop-crash-inbox',
           'content-type': 'application/json',
         },
-        body: JSON.stringify({ title: `Crash #${seq} (${r.version}): ${reason}`.slice(0, 120), body: issueBody(r, seq), labels: ['crash'] }),
       });
-      if (res.ok) {
-        number = (await res.json()).number || seq;
+    try {
+      // The same crash already has an open issue: add to it instead of opening another.
+      const found = await gh(`/search/issues?q=${encodeURIComponent(`repo:${env.GITHUB_REPO} is:issue is:open label:sig-${sig}`)}&per_page=1`);
+      const hit = found.ok ? (await found.json()).items?.[0] : null;
+      if (hit) {
+        await gh(`/repos/${env.GITHUB_REPO}/issues/${hit.number}/comments`, {
+          method: 'POST',
+          body: JSON.stringify({ body: `Another report of this crash (#${seq}, id \`${r.id}\`): ${r.version} ${r.build}, ${r.mode}/${r.net}, ${r.os}.\n\n${r.description ? 'Player note: ' + oneLine(r.description, 300) : '_no note_'}` }),
+        });
+        number = hit.number;
         issue = true;
+        duplicate = true;
+      } else {
+        const res = await gh(`/repos/${env.GITHUB_REPO}/issues`, {
+          method: 'POST',
+          body: JSON.stringify({
+            title: `Crash ${code} (${r.version}): ${frames[0] || faultAt || r.reason || 'crash'}`.slice(0, 120),
+            body: issueBody(r, seq, sig),
+            labels: ['crash', `sig-${sig}`],
+          }),
+        });
+        if (res.ok) {
+          number = (await res.json()).number || seq;
+          issue = true;
+        }
       }
     } catch {
       // the report is stored; the issue can be made from it later
     }
   }
   await env.REPORTS.put(`id:${r.id}`, String(number), { expirationTtl: KEEP_SECONDS });
-  return json({ ok: true, number, issue });
+  return json({ ok: true, number, issue, duplicate });
 }
 
 export default { fetch: (request, env) => handle(request, env) };

@@ -1,0 +1,152 @@
+# Copy this file to .github/workflows/crash-fix.yml in the PRIVATE crash-report repository (docs/CRASH_FIXES.md).
+#
+# A new crash issue (made by the inbox Worker) is investigated by Claude against the exact build that crashed. If it
+# finds a confident fix, a DRAFT pull request is opened in the public LmCoop repository for a person to review; if not,
+# the analysis is posted on the issue. Nothing is merged or released automatically.
+#
+# Secrets (this repository's Settings > Secrets and variables > Actions):
+#   ANTHROPIC_API_KEY  the key the agent runs with
+#   LMCOOP_TOKEN       a fine-grained token for Recoi1/LmCoop only: Contents read+write, Pull requests read+write
+# The agent step has ONLY the Anthropic key and can only read and edit files. The token is used by ordinary steps
+# before and after it, and the checks that guard the pull request run from a copy of the scripts made before the agent.
+name: Crash fix (draft)
+
+on:
+  issues:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number to investigate
+        required: true
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: crash-fix-${{ github.event.issue.number || inputs.issue }}
+  cancel-in-progress: false
+
+env:
+  ISSUE: ${{ github.event.issue.number || inputs.issue }}
+  GH_TOKEN: ${{ github.token }}
+  PUBLIC_REPO: Recoi1/LmCoop
+
+jobs:
+  fix:
+    if: github.event_name == 'workflow_dispatch' || contains(join(github.event.issue.labels.*.name, ','), 'crash')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: The report
+        run: |
+          gh issue view "$ISSUE" --repo "$GITHUB_REPOSITORY" --json number,title,body,labels > issue.json
+          python3 - <<'PY'
+          import json, re, os
+          d = json.load(open('issue.json'))
+          b = d['body'] or ''
+          m = re.search(r'\| Build \| ([0-9a-f]{7,40}) \|', b)
+          v = re.search(r'\| Version \| ([0-9][0-9.]*) \|', b)
+          sig = next((l['name'] for l in d['labels'] if l['name'].startswith('sig-')), '')
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write(f"BUILD={m.group(1) if m else ''}\nVERSION={v.group(1) if v else ''}\nSIG={sig}\n")
+          PY
+
+      - name: Skip if a draft fix for this crash is already open
+        run: |
+          n=$(gh pr list --repo "$PUBLIC_REPO" --label auto-fix --state open --search "$SIG in:title" --json number --jq length 2>/dev/null || echo 0)
+          if [ "${n:-0}" != "0" ] && [ -n "$SIG" ]; then
+            echo "A draft for $SIG is already open"
+            gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "A draft fix for this crash signature is already open."
+            echo "SKIP=1" >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/checkout@v4
+        if: env.SKIP != '1'
+        with:
+          repository: ${{ env.PUBLIC_REPO }}
+          token: ${{ secrets.LMCOOP_TOKEN }}
+          fetch-depth: 0
+          path: lmcoop
+          persist-credentials: false
+
+      - name: The crashed build next to main, and a pristine copy of the scripts
+        if: env.SKIP != '1'
+        run: |
+          mkdir -p out context gate
+          cp -r lmcoop/tools/crash/. gate/            # the agent can edit lmcoop/, never these
+          if [ -n "$BUILD" ] && git -C lmcoop cat-file -e "$BUILD^{commit}" 2>/dev/null; then
+            git -C lmcoop worktree add ../crashed "$BUILD" --detach
+          else
+            mkdir crashed; echo "build $BUILD not found" > crashed/NOT_FOUND.txt
+          fi
+
+      - name: Symbols for that version (best effort)
+        if: env.SKIP != '1'
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y --no-install-recommends llvm >/dev/null
+          mkdir sym && cd sym
+          gh release download "v$VERSION" --repo "$PUBLIC_REPO" --pattern '*-windows-x64.zip' --pattern 'LmCoop-*.pdb.zip'
+          unzip -q -o ./*windows-x64.zip && unzip -q -o ./LmCoop-*.pdb.zip
+          cp -f ./*/LmCoop.exe . 2>/dev/null || true; cp -f ./*/LmCoop.pdb . 2>/dev/null || true
+
+      - name: The briefing
+        if: env.SKIP != '1'
+        run: |
+          EXE=$(ls sym/LmCoop.exe 2>/dev/null || true)
+          python3 gate/prepare_context.py --issue issue.json --repo lmcoop --out context/crash_context.md ${EXE:+--exe "$EXE"}
+          cp gate/fix-prompt.md context/prompt.md
+
+      - name: Investigate and fix (the agent can only read and edit files)
+        if: env.SKIP != '1'
+        working-directory: lmcoop
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude -p "$(cat ../context/prompt.md)" \
+            --add-dir ../crashed --add-dir ../context --add-dir ../out \
+            --allowedTools "Read,Grep,Glob,Edit,Write" --permission-mode acceptEdits --max-turns 60 \
+            > ../out/agent.log 2>&1 || true
+
+      - name: Check what the agent left behind
+        if: env.SKIP != '1'
+        id: gate
+        run: |
+          set +e
+          python3 gate/check_patch.py --repo lmcoop --briefing context/crash_context.md | tee out/gate.txt
+          echo "code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Draft pull request
+        if: env.SKIP != '1' && steps.gate.outputs.code == '0'
+        env:
+          LMCOOP_TOKEN: ${{ secrets.LMCOOP_TOKEN }}
+        run: |
+          cd lmcoop
+          git config user.name "lmcoop-crash-bot"; git config user.email "lmcoop-crash-bot@users.noreply.github.com"
+          BR="auto-fix/$SIG"
+          git checkout -b "$BR"
+          git add -A && git commit -q -m "Fix crash $SIG (draft, written by an AI agent)"
+          # the pull request text is checked too: it is public
+          TITLE="Draft fix for crash $SIG"
+          BODY="Automatic draft fix for crash signature \`$SIG\` (build \`$BUILD\`, version $VERSION). Written by an AI agent from a private crash report; **a person must review it before merging.**"
+          if [ -s ../out/summary.md ]; then
+            cp ../out/summary.md /tmp/body.md
+            python3 ../gate/check_patch.py --scan-text /tmp/body.md --briefing ../context/crash_context.md && BODY=$(cat /tmp/body.md) || echo "summary refused by the text check; using the plain description"
+          fi
+          git push "https://x-access-token:${LMCOOP_TOKEN}@github.com/$PUBLIC_REPO.git" "$BR"
+          URL=$(GH_TOKEN="$LMCOOP_TOKEN" gh pr create --repo "$PUBLIC_REPO" --draft --head "$BR" --title "$TITLE" --body "$BODY" --label auto-fix)
+          echo "pr=$URL" >> "$GITHUB_ENV"
+          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Draft pull request opened: $URL"$'\n\n'"$(cat ../out/analysis.md 2>/dev/null)"
+
+      - name: "No fix: the analysis goes on the issue"
+        if: env.SKIP != '1' && steps.gate.outputs.code != '0'
+        run: |
+          {
+            echo "No automatic fix was opened (gate: $(cat out/gate.txt | tr '\n' ' '))."
+            echo; cat out/analysis.md 2>/dev/null || echo "The agent left no analysis; see the workflow run."
+          } > out/comment.md
+          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body-file out/comment.md
+          gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --add-label needs-human

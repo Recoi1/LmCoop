@@ -83,6 +83,9 @@ jobs:
           }
           if ($env:STEAM_ARG -and -not (Test-Path "out/$name/steam_api64.dll")) { throw "built with Steam but the package has no steam_api64.dll" }
           & "out/$name/llvm/bin/clang.exe" --version
+          # The debug symbols of exactly this build, so a crash address in a report can be turned into a function name
+          # (tools/crash/prepare_context.py). Attached to the release next to the package.
+          if (Test-Path build/windows-clang/LmCoop.pdb) { Compress-Archive -Path build/windows-clang/LmCoop.pdb -DestinationPath "out/LmCoop-$version.pdb.zip" }
           Compress-Archive -Path "out/$name" -DestinationPath "out/$name.zip"
           Get-FileHash -Algorithm SHA256 "out/$name.zip"
           "PKG=out/$name.zip" >> $env:GITHUB_ENV
@@ -92,6 +95,11 @@ jobs:
           name: ${{ env.PKG_NAME }}
           path: ${{ env.PKG }}
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols
+          path: out/LmCoop-*.pdb.zip
+          if-no-files-found: ignore
 
   linux:
     name: Linux x86_64
