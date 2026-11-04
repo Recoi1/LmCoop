@@ -491,7 +491,11 @@ void frame(Ctx& ctx) {
         sJoinedWorld = 0;
         return;
     }
-    if (sHaveGame && !sLoadRequested && !events::busy() && settled() && rd32(kSceneId) != 0) {
+    // A shared event that ends in a map change (the lab's "Where will you go?") never reaches its end on the guest, so it stays
+    // "busy"; a snapshot of a newer world means the host has already left it, and the guest follows.
+    if (sHaveGame && !sLoadRequested && events::eventWorld() && sPendingGame.world != events::eventWorld()) events::reset();  // also stops its hold on the scene change
+    const bool eventHoldsLoad = events::busy() && sPendingGame.world == events::eventWorld();
+    if (sHaveGame && !sLoadRequested && !eventHoldsLoad && settled() && rd32(kSceneId) != 0) {
         sLoadingGame = sPendingGame;
         sHaveGame = false, sLoadRequested = true;
         sJoinedWorld = 0;

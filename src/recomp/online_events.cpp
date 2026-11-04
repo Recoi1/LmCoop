@@ -91,6 +91,7 @@ void reset() {
     sBusy = false;
 }
 bool busy() { return sBusy.load(); }
+u32 eventWorld() { return sProgress.serial ? sEvent.game.world : 0; }
 bool holdPlayers() {
     if (!eventsOn() || !active() || (guest() && !sTeleported)) return false;
     const u32 p = coop::cachedPlayer(0);

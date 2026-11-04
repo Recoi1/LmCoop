@@ -330,7 +330,7 @@ void syncOnline(u32 p1, u32 p2, bool hold) {
 
     if (static const bool sTrace = std::getenv("LM_ONLINE_TRACE") != nullptr; sTrace) {  // test aid: where everyone is
         static u32 n = 0;
-        if (n++ % 15 == 0 && n < 1500) {
+        if (n++ % 15 == 0 && n < 60000) {
             const online::PlayerState* rr = online::remote();
             const u32 o = other;
             log("[trace] f%u me=%d p1(%.0f,%.0f,%.0f) p2(%.0f,%.0f,%.0f) remote(%.0f,%.0f,%.0f) hold %d", skip::guestFrames(), li,
@@ -403,7 +403,7 @@ HLE(fn_800112F8) {
     if (static const bool sTrace2 = std::getenv("LM_POS_TRACE") != nullptr; sTrace2) {  // test aid: the players' positions in every mode
         static u32 n = 0;
         const u32 a = player(c, 0), b = player(c, 1);
-        if (a && n++ % 15 == 0 && n < 3000)
+        if (a && n++ % 15 == 0 && n < 60000)
             log("[pos] f%u map %u room %u p1(%.0f,%.0f,%.0f) p2(%.0f,%.0f,%.0f)", skip::guestFrames(), rd32(kCurMapNo), rd32(a + 0xB4), gu::rdf(a + 0x44),
                 gu::rdf(a + 0x48), gu::rdf(a + 0x4C), b ? gu::rdf(b + 0x44) : 0.f, b ? gu::rdf(b + 0x48) : 0.f, b ? gu::rdf(b + 0x4C) : 0.f);
     }
