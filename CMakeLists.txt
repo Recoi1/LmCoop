@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.25)
-project(lmport LANGUAGES C CXX VERSION 1.3.1)
+project(lmport LANGUAGES C CXX VERSION 1.3.2)
+if (WIN32)
+    enable_language(RC)  # the exe icon (packaging/windows/lmcoop.rc)
+endif ()
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
@@ -209,12 +212,16 @@ endfunction()
 # with the bundled clang + lld (docs/SETUP.md).
 file(GLOB SETUP_SOURCES CONFIGURE_DEPENDS src/setup/*.cpp src/setup/*.h)
 add_executable(LuigisMansionRecomp ${RECOMP_RUNTIME_SOURCES} ${SETUP_SOURCES})
+if (WIN32)
+    set_target_properties(LuigisMansionRecomp PROPERTIES OUTPUT_NAME LmCoop)  # the file players run: LmCoop.exe (Linux/macOS keep the old name)
+endif ()
 lm_runtime_target(LuigisMansionRecomp)
 target_link_libraries(LuigisMansionRecomp PRIVATE lm_recompiler)  # nod comes with aurora::dvd
 if (WIN32)
     # A windowed program: no console window opens with the game (output: src/port/recovery.h
     # setupConsole). main() stays the entry point. lmrecomp (dev build) keeps its console.
     set_target_properties(LuigisMansionRecomp PROPERTIES WIN32_EXECUTABLE TRUE)
+    target_sources(LuigisMansionRecomp PRIVATE packaging/windows/lmcoop.rc)
     target_link_options(LuigisMansionRecomp PRIVATE "LINKER:/ENTRY:mainCRTStartup")
 endif ()
 # Setup's inputs are embedded in the executable (src/setup/embedded.cpp): symbol maps,
@@ -272,6 +279,11 @@ endif ()
 # LM_LLVM_DIR (an LLVM bin directory) supplies the bundled clang and lld-link / ld.lld.
 set(LM_LLVM_DIR "${_cxx_dir}" CACHE PATH "LLVM bin directory whose clang and lld-link (Windows) / ld.lld (Linux) are bundled on install")
 install(TARGETS LuigisMansionRecomp RUNTIME DESTINATION .)
+# shortcut: a copy under the old name, only so installs older than 1.3.2 (whose updater insists on finding
+# it in the package) can still update; drop it once those are gone.
+if (WIN32)
+    install(PROGRAMS $<TARGET_FILE:LuigisMansionRecomp> DESTINATION . RENAME LuigisMansionRecomp.exe)
+endif ()
 install(FILES NOTICE.md DESTINATION .)
 install(DIRECTORY packaging/licenses/ DESTINATION licenses)
 install(FILES data/pipelines.bin DESTINATION .)

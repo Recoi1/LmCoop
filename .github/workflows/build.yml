@@ -54,7 +54,7 @@ jobs:
           $name = "LuigisMansionRecompiled-$version-windows-x64"
           cmake --install build/windows-clang --prefix "out/$name"
           if ($LASTEXITCODE) { throw "cmake --install failed" }
-          foreach ($f in @("LuigisMansionRecomp.exe", "pipelines.bin", "llvm\bin\clang.exe", "llvm\bin\lld-link.exe")) {
+          foreach ($f in @("LmCoop.exe", "LuigisMansionRecomp.exe", "pipelines.bin", "llvm\bin\clang.exe", "llvm\bin\lld-link.exe")) {
             if (-not (Test-Path "out/$name/$f")) { throw "package is missing $f" }
           }
           & "out/$name/llvm/bin/clang.exe" --version

@@ -74,8 +74,8 @@ constexpr const char* kAssetHosts[] = {"github.com", "objects.githubusercontent.
                                        "release-assets.githubusercontent.com"};
 #ifdef _WIN32
 constexpr const char* kAssetSuffix = "-windows-x64.zip";
-constexpr const char* kExeName = "LuigisMansionRecomp.exe";
-const char* const kExpected[] = {"LuigisMansionRecomp.exe", "pipelines.bin", "llvm/bin/clang.exe",
+constexpr const char* kExeName = "LmCoop.exe";
+const char* const kExpected[] = {"LmCoop.exe", "pipelines.bin", "llvm/bin/clang.exe",
                                  "llvm/bin/lld-link.exe"};
 #else
 #ifdef __APPLE__

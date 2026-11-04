@@ -1,4 +1,4 @@
-LmCoop 1.3.1 - Windows x64
+LmCoop 1.3.2 - Windows x64
 =========================
 
 Download/source: https://github.com/Recoi1/LmCoop
@@ -11,7 +11,7 @@ REQUIREMENTS AND INSTALLATION
 - Windows 10/11, 64-bit, Direct3D 12 capable graphics card.
 - About 2 GB free space for the module and caches, plus your own disc image.
 - Extract the whole ZIP to a writable folder. Keep the DLLs and llvm folder.
-- Run LuigisMansionRecomp.exe. Drag your USA ISO/RVZ onto the setup screen,
+- Run LmCoop.exe. Drag your USA ISO/RVZ onto the setup screen,
   or use Browse. Wait for module compilation and shader preparation.
 - Choose Singleplayer or Multiplayer at the start menu.
 - Settings on the start screen configures visuals, sound, keyboard/mouse and controllers.
@@ -45,7 +45,8 @@ If startup fails, check last_run.log in the data folder and the recovery UI.
 To uninstall, delete this extracted folder; AppData saves remain separately.
 
 CONTENTS
-LuigisMansionRecomp.exe: setup, recompiler and runtime, without the retail game.
+LmCoop.exe: setup, recompiler and runtime, without the retail game.
+LuigisMansionRecomp.exe: the same program under its old name, kept so older versions can update.
 *.dll: runtime libraries. pipelines.bin: shader precache list.
 llvm/bin/clang.exe and lld-link.exe: first-run compiler/linker.
 NOTICE.md and licenses/: third-party notices and licenses.
