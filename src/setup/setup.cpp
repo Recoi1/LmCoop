@@ -254,6 +254,10 @@ bool run(const Options& opts, LaunchInfo& launch) {
         if (c == "single" || (c.empty() && opts.autoStart)) return choose(0);
         if (c == "host") return choose(1);
         if (c == "join") return choose(2);
+        if (c == "multiplayer") {  // test aid: straight to the multiplayer screens (LM_LOBBY_AUTO drives them)
+            screen = Screen::Multiplayer;
+            return;
+        }
         screen = Screen::Start;
         if (c == "settings") settingsReturn = screen, screen = Screen::Settings;
         if (c == "updates") updatesReturn = screen, screen = Screen::Updates;
@@ -335,7 +339,7 @@ bool run(const Options& opts, LaunchInfo& launch) {
         const bool panel = screen == Screen::Settings || screen == Screen::Updates;
         if (!panel) {
             ImGui::Dummy(ImVec2(0, ImGui::GetWindowHeight() * 0.12f));
-            drawLogo();
+            if (!(screen == Screen::Multiplayer && recomp::online::lobbyScreenOpen())) drawLogo();  // the lobby needs the room
             ImGui::Dummy(ImVec2(0, 24 * scale));
         }
         const ImVec4 red(1.0f, 0.45f, 0.4f, 1), grey(0.6f, 0.6f, 0.6f, 1);

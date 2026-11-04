@@ -19,6 +19,8 @@ namespace recomp::online {
 #include <steam/steam_api.h>
 #include <steam/isteamnetworkingmessages.h>
 
+#include <aurora/imgui.h>
+
 #include <windows.h>
 
 #include <algorithm>
@@ -188,6 +190,7 @@ public:
     }
     std::string describe(PeerId) const override { return "the other player over Steam"; }
     PeerId initialPeer() const override { return cfg_.host ? 0 : 1; }
+    std::uint64_t peerSteamId() const override { return peer_.IsValid() ? peer_.ConvertToUint64() : 0; }
 
 private:
     void fail(const std::string& why) {
@@ -263,6 +266,32 @@ private:
 
 }  // namespace
 
+std::string steamName(std::uint64_t id) {
+    std::string err;
+    if (!ensureSteam(err)) return {};
+    if (id == 0 || CSteamID(id) == SteamUser()->GetSteamID()) return SteamFriends()->GetPersonaName();
+    return SteamFriends()->GetFriendPersonaName(CSteamID(id));
+}
+
+// The avatar as an ImGui texture, made once per user. Steam loads some avatars lazily (handle -1): 0 until then.
+std::uint64_t steamAvatar(std::uint64_t id) {
+    static std::vector<std::pair<std::uint64_t, std::uint64_t>> cache;
+    std::string err;
+    if (!ensureSteam(err)) return 0;
+    const CSteamID who = id ? CSteamID(id) : SteamUser()->GetSteamID();
+    for (const auto& [k, tex] : cache)
+        if (k == who.ConvertToUint64()) return tex;
+    const int handle = SteamFriends()->GetMediumFriendAvatar(who);
+    if (handle <= 0) return 0;  // -1: still loading, 0: none
+    uint32 w = 0, h = 0;
+    if (!SteamUtils()->GetImageSize(handle, &w, &h) || !w || !h) return 0;
+    std::vector<uint8> rgba(size_t(w) * h * 4);
+    if (!SteamUtils()->GetImageRGBA(handle, rgba.data(), int(rgba.size()))) return 0;
+    const std::uint64_t tex = std::uint64_t(aurora_imgui_add_texture(w, h, rgba.data()));
+    cache.emplace_back(who.ConvertToUint64(), tex);
+    return tex;
+}
+
 bool steamAvailable() { return true; }
 std::unique_ptr<Transport> makeSteamTransport(const NetConfig& c) { return std::make_unique<SteamTransport>(c); }
 void steamRefreshLobbies() { browser().refresh(); }
@@ -285,6 +314,8 @@ public:
 }  // namespace
 
 bool steamAvailable() { return false; }
+std::string steamName(std::uint64_t) { return {}; }
+std::uint64_t steamAvatar(std::uint64_t) { return 0; }
 std::unique_ptr<Transport> makeSteamTransport(const NetConfig&) { return std::make_unique<NoSteam>(); }
 void steamRefreshLobbies() {}
 LobbyList steamLobbyList() {

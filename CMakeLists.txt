@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(lmport LANGUAGES C CXX VERSION 1.3.3)
+project(lmport LANGUAGES C CXX VERSION 1.4.0)
 if (WIN32)
     enable_language(RC)  # the exe icon (packaging/windows/lmcoop.rc)
 endif ()

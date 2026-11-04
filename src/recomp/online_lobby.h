@@ -1,6 +1,7 @@
 #pragma once
 // Lobby browser data for the Browse Lobbies screen (online_rtc.cpp). The fetch runs on library
 // threads; the UI only reads snapshots.
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -24,5 +25,9 @@ LobbyList lobbyList();                               // newest snapshot
 // The same for Steam lobbies (online_steam.cpp).
 void steamRefreshLobbies();
 LobbyList steamLobbyList();
+// A Steam user's display name and avatar texture (an ImTextureID as an integer; 0 while it loads or without
+// Steam). id 0 = this PC's own user.
+std::string steamName(std::uint64_t id);
+std::uint64_t steamAvatar(std::uint64_t id);
 
 }  // namespace recomp::online

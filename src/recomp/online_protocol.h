@@ -17,7 +17,7 @@ constexpr size_t kMaxPacket = 1200;
 constexpr u32 kMagic = 0x4F434D4C;  // "LMCO"
 constexpr float kMaxCoord = 1e5f;
 
-enum class Kind : u8 { Hello = 1, Welcome = 2, Reject = 3, State = 4, Bye = 5, GameRequest = 6, Game = 7, Event = 8 };
+enum class Kind : u8 { Hello = 1, Welcome = 2, Reject = 3, State = 4, Bye = 5, GameRequest = 6, Game = 7, Event = 8, Lobby = 9 };
 struct PadState { u16 buttons; s8 stickX, stickY, substickX, substickY; u8 triggerL, triggerR; };
 constexpr size_t kNameSize = 16;  // 15 characters and the terminator
 enum class EventPhase : u8 { None, Prepared, Playing, Ending, Finished };
@@ -98,7 +98,7 @@ inline bool decode(const u8* in, size_t len, Header& h, const u8*& body, size_t&
     h.magic = r.le<u32>();
     const u8 kind = r.le<u8>();
     h.seq = r.le<u32>();
-    if (h.magic != kMagic || kind < u8(Kind::Hello) || kind > u8(Kind::Event)) return false;
+    if (h.magic != kMagic || kind < u8(Kind::Hello) || kind > u8(Kind::Lobby)) return false;
     h.kind = Kind(kind);
     body = in + kHeaderWireSize, bodySize = len - kHeaderWireSize;
     return true;
@@ -181,6 +181,29 @@ inline bool decodeGame(const u8* body, size_t n, GameState& s) {
     // These saved counts become actor health and the bounds of its captured-ghost list.
     if (be16(0x234) > 999 || be16(0x236) < 1 || be16(0x236) > 999 || be32(0x234 + 0xB4) > 64) return false;
     s = t;
+    return true;
+}
+
+// The pre-game lobby (online_room.cpp): both PCs send this twice a second; the host's `started` ends it.
+struct LobbyMsg { char name[kNameSize]; bool started; };
+constexpr size_t kLobbyWireSize = kNameSize + 1;
+inline size_t encodeLobby(const LobbyMsg& m, u8* out, size_t cap) {
+    wire::Writer w{out, cap};
+    w.bytes(m.name, kNameSize), w.le(u8(m.started));
+    return w.ok ? w.n : 0;
+}
+inline bool decodeLobby(const u8* body, size_t n, LobbyMsg& m) {
+    if (n != kLobbyWireSize) return false;
+    wire::Reader r{body, n};
+    LobbyMsg t{};
+    r.bytes(t.name, kNameSize);
+    const u8 started = r.le<u8>();
+    if (!r.ok || started > 1) return false;
+    t.name[kNameSize - 1] = 0;  // shown on screen: printable ASCII only, always terminated
+    for (char& ch : t.name)
+        if (ch && (ch < 0x20 || ch > 0x7E)) ch = '?';
+    t.started = started != 0;
+    m = t;
     return true;
 }
 

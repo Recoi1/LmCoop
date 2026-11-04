@@ -5,6 +5,7 @@
 #include "recomp/online.h"
 #include "recomp/online_config.h"
 #include "recomp/online_lobby.h"
+#include "recomp/online_room.h"
 #include "recomp/online_transport.h"
 
 #include "port/update.h"
@@ -19,7 +20,7 @@
 namespace recomp::online {
 namespace {
 
-enum class Page { Menu, Host, Browse, Code, Direct, Settings };
+enum class Page { Menu, Host, Browse, Code, Direct, Settings, Lobby };
 Page sPage = Page::Menu;
 bool sPageEntered = true;  // first frame of a page
 
@@ -54,6 +55,8 @@ void startInternet(Config& c, Mode mode) {
 
 }  // namespace
 
+bool lobbyScreenOpen() { return sPage == Page::Lobby; }
+
 MenuResult drawMultiplayerMenu(float scale) {
     Config c = savedConfig();
     bool dirty = false;
@@ -82,6 +85,7 @@ MenuResult drawMultiplayerMenu(float scale) {
     }
     const bool entered = sPageEntered;
     sPageEntered = false;
+    if (room::autopilot()) go(Page::Lobby);  // test aid (LM_LOBBY_AUTO)
 
     switch (sPage) {
     case Page::Menu:
@@ -110,7 +114,8 @@ MenuResult drawMultiplayerMenu(float scale) {
         ImGui::BeginDisabled((c.signalUrl.empty() && !c.steam) || c.lobbyName.empty());
         if (ImGui::Button("Create lobby", ImVec2(160 * scale, 36 * scale))) {
             startInternet(c, Mode::Host);
-            result = MenuResult::Start;
+            room::open(c);
+            go(Page::Lobby);
         }
         ImGui::EndDisabled();
         back();
@@ -151,7 +156,8 @@ MenuResult drawMultiplayerMenu(float scale) {
                 if (ImGui::Button("Join")) {
                     c.inviteCode.clear(), c.lobbyId = l.id;
                     startInternet(c, Mode::Join);
-                    result = MenuResult::Start;
+                    room::open(c);
+                    go(Page::Lobby);
                 }
                 ImGui::PopID();
                 ImGui::EndDisabled();
@@ -178,7 +184,8 @@ MenuResult drawMultiplayerMenu(float scale) {
         if (ImGui::Button("Join", ImVec2(160 * scale, 36 * scale))) {
             c.lobbyId.clear();
             startInternet(c, Mode::Join);
-            result = MenuResult::Start;
+            room::open(c);
+            go(Page::Lobby);
         }
         ImGui::EndDisabled();
         back();
@@ -193,15 +200,76 @@ MenuResult drawMultiplayerMenu(float scale) {
         if (dirty) setSavedConfig(c), dirty = false;
         drawHostJoin(false);
         ImGui::BeginDisabled(!readyToStart());
-        if (ImGui::Button("Start", ImVec2(160 * scale, 36 * scale))) {
+        if (ImGui::Button("Open lobby", ImVec2(160 * scale, 36 * scale))) {
             Config d = savedConfig();
             d.internet = false;
             setSavedConfig(d);
-            result = MenuResult::Start;
+            room::open(d);
+            go(Page::Lobby);
         }
         ImGui::EndDisabled();
         back();
         break;
+
+    case Page::Lobby: {
+        const room::State st = room::update();
+        ImGui::SetWindowFontScale(1.4f);
+        ImGui::TextUnformatted("LOBBY");
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::TextDisabled("%s", st.status.c_str());
+        if (st.host && !st.code.empty()) {
+            ImGui::Text("Invite code: %s", st.code.c_str());
+            ImGui::SameLine();
+            if (ImGui::Button("Copy")) ImGui::SetClipboardText(st.code.c_str());
+        }
+        ImGui::Dummy(ImVec2(0, 8 * scale));
+        if (!st.failed) {
+            // Slot 1 is the host (Luigi), slot 2 the guest (Mario), whichever PC this is.
+            const room::Player& hostP = st.host ? st.me : st.other;
+            const room::Player& guestP = st.host ? st.other : st.me;
+            const float face = 64 * scale;
+            auto slot = [&](const room::Player& p, const char* role) {
+                ImGui::PushID(role);
+                const ImVec2 at = ImGui::GetCursorScreenPos();
+                if (p.avatar) {
+                    ImGui::Image(ImTextureID(p.avatar), ImVec2(face, face));
+                } else {
+                    ImGui::Dummy(ImVec2(face, face));
+                    ImGui::GetWindowDrawList()->AddRectFilled(at, ImVec2(at.x + face, at.y + face), p.present ? IM_COL32(60, 90, 150, 255) : IM_COL32(35, 40, 55, 255));
+                }
+                ImGui::SameLine();
+                ImGui::BeginGroup();
+                ImGui::Dummy(ImVec2(0, face * 0.12f));
+                if (p.present) ImGui::Text("%s", p.name.c_str()); else ImGui::TextDisabled("Player slot available");
+                ImGui::TextDisabled("%s", role);
+                ImGui::EndGroup();
+                ImGui::Dummy(ImVec2(0, 4 * scale));
+                ImGui::PopID();
+            };
+            slot(hostP, "Luigi (host)");
+            slot(guestP, "Mario");
+            ImGui::Dummy(ImVec2(0, 8 * scale));
+            if (st.host) {
+                if (ImGui::Button("Start the game", ImVec2(200 * scale, 36 * scale))) room::start();
+                if (st.started) {  // the button or the test autopilot started it
+                    room::finish();
+                    result = MenuResult::Start;
+                }
+            } else {
+                ImGui::TextDisabled("Waiting for the host to start the game...");
+                if (st.started) {
+                    room::finish();
+                    result = MenuResult::Start;
+                }
+            }
+        }
+        ImGui::Dummy(ImVec2(0, 8 * scale));
+        if (ImGui::Button("Leave lobby", ImVec2(160 * scale, 34 * scale))) {
+            room::leave();
+            go(Page::Menu);
+        }
+        break;
+    }
 
     case Page::Settings: {
         nameField(c, dirty);

@@ -2,8 +2,11 @@
 // Online co-op session (online.cpp): the 2-player mode across two PCs over UDP, e.g. a Radmin VPN
 // address. Host = player 1 (Luigi), client = player 2 (Mario). F1 > Controls > Online, or the
 // LM_ONLINE* test aids. Off by default; nothing is opened while off.
+#include "recomp/online_config.h"
 #include "recomp/online_protocol.h"
+#include "recomp/online_transport.h"
 
+#include <memory>
 #include <string>
 
 struct PADStatus;
@@ -43,6 +46,7 @@ const char* status();  // "off", "waiting", "connected", "rejected: <why>", "dis
 // the saved settings describe the session to begin; Back to leave to the start menu.
 enum class MenuResult { Stay, Start, Back };
 MenuResult drawMultiplayerMenu(float scale);
+bool lobbyScreenOpen();  // the pre-game lobby is on screen (the start menu hides its logo for room)
 
 bool drawTab();        // Controls tab, "Online" sub-tab. True when a setting changed.
 // Host/Join, address, port and password (the Online tab and the LmCoop start menu). True when changed.
@@ -52,5 +56,11 @@ int configuredMode();  // the saved mode: 0 off, 1 host, 2 join
 std::string inviteCode();  // internet host: the code to share ("" until the lobby is registered)
 // The LmCoop start menu's choice for this session (-1 = the saved settings, 0 off, 1 host, 2 join).
 void setSessionMode(int mode);
+// The pre-game lobby (online_room.cpp) opens the transport before the game boots: makeTransport builds one
+// from the settings, and the session takes over the one the lobby adopted (adoptTransport) instead of
+// opening its own.
+std::unique_ptr<Transport> makeTransport(const Config& c);
+Config sessionConfig();  // the saved settings with the LM_ONLINE* overrides (what the session runs)
+void adoptTransport(std::unique_ptr<Transport> t);
 
 }  // namespace recomp::online

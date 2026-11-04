@@ -54,6 +54,8 @@ public:
     virtual std::string describe(PeerId peer) const = 0;  // for the connected status line
     // Who a joining session sends to before it has heard from anyone; 0 = nobody yet (the host).
     virtual PeerId initialPeer() const { return 0; }
+    // Steam transport: the other player's SteamID64 for the lobby screen (name and avatar); 0 otherwise or while nobody is there.
+    virtual std::uint64_t peerSteamId() const { return 0; }
 };
 
 // Never null: on failure the returned transport reports status().failed with the reason.

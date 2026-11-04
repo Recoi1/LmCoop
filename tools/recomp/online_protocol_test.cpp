@@ -2,6 +2,8 @@
 #include "recomp/online_protocol.h"
 #include <cassert>
 #include <cmath>
+#include <cstdio>
+#include <string>
 #include <cstring>
 #include <initializer_list>
 #include <limits>
@@ -74,7 +76,7 @@ int main() {
     bad[0] ^= 0xFF;
     assert(!decode(bad, n, got, b, bn));
     std::memcpy(bad, buf, n);
-    bad[4] = 9;
+    bad[4] = 10;
     assert(!decode(bad, n, got, b, bn));
     assert(!decode(buf, kHeaderWireSize - 1, got, b, bn));
     assert(!decode(buf, kMaxPacket + 1, got, b, bn));
@@ -137,6 +139,18 @@ int main() {
     assert(out.event.serial == 9 && out.event.choice == 2 && out.event.choiceOffset == 0x1234 &&
            out.event.selection == 3 && out.event.phase == EventPhase::Playing && out.scene == 4 && out.sceneDone);
     assert(out.yaw == 0xBEEF && out.aim == 201);
+
+    // The lobby message round-trips, is sanitised and refuses wrong sizes.
+    LobbyMsg lm{};
+    std::snprintf(lm.name, kNameSize, "Zor""bos");
+    lm.started = true;
+    u8 lb[kLobbyWireSize];
+    assert(encodeLobby(lm, lb, sizeof(lb)) == kLobbyWireSize);
+    LobbyMsg lo{};
+    assert(decodeLobby(lb, kLobbyWireSize, lo) && lo.started && std::string(lo.name) == "Zor?bos");
+    assert(!decodeLobby(lb, kLobbyWireSize - 1, lo));
+    lb[kNameSize] = 2;
+    assert(!decodeLobby(lb, kLobbyWireSize, lo));
     for (int invalid = 0; invalid < 4; invalid++) {
         PlayerState badEv = ev;
         if (invalid == 0) badEv.event.phase = EventPhase(9);

@@ -202,8 +202,15 @@ NetConfig netConfig(const Config& c) {
     return n;
 }
 
+std::mutex sAdoptM;
+std::unique_ptr<Transport> sAdopted;  // opened by the lobby before the game booted
+
 bool openSocket(const Config& c) {
-    sNet = !c.internet ? makeUdpTransport(netConfig(c)) : c.steam ? makeSteamTransport(netConfig(c)) : makeRtcTransport(netConfig(c));
+    {
+        std::lock_guard lk(sAdoptM);
+        if (sAdopted) sNet = std::move(sAdopted);
+    }
+    if (!sNet) sNet = !c.internet ? makeUdpTransport(netConfig(c)) : c.steam ? makeSteamTransport(netConfig(c)) : makeRtcTransport(netConfig(c));
     if (const NetStatus s = sNet->status(); s.failed) {
         setStatus(s.text);
         sNet.reset();
@@ -700,6 +707,15 @@ std::string inviteCode() {
 int configuredMode() {
     std::lock_guard lk(sCfgM);
     return int(sCfg.mode);
+}
+
+Config sessionConfig() { return config(); }
+std::unique_ptr<Transport> makeTransport(const Config& c) {
+    return !c.internet ? makeUdpTransport(netConfig(c)) : c.steam ? makeSteamTransport(netConfig(c)) : makeRtcTransport(netConfig(c));
+}
+void adoptTransport(std::unique_ptr<Transport> t) {
+    std::lock_guard lk(sAdoptM);
+    sAdopted = std::move(t);
 }
 
 bool drawHostJoin(bool withOff) {
