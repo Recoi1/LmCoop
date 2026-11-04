@@ -10,6 +10,7 @@ enum class Mode : int { Off, Host, Join };
 struct Config {
     Mode mode = Mode::Off;
     bool internet = false;            // false: Direct Connect (UDP address, LAN / Radmin)
+    bool steam = false;               // internet through Steam lobbies and relay (no matchmaking server)
     std::string address;              // direct: the address to listen on (host) or the host's address (join)
     int port = 28555;
     std::string password;

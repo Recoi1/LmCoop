@@ -168,6 +168,7 @@ list(APPEND RECOMP_RUNTIME_SOURCES src/port/crash_handler.cpp src/port/options.c
 # rebuilds one file.
 set_source_files_properties(src/port/update.cpp PROPERTIES COMPILE_DEFINITIONS "LM_VERSION=\"${PROJECT_VERSION}\"")
 
+set(LM_STEAM_SDK_DIR "" CACHE PATH "Steamworks SDK 'sdk' folder: builds the optional Steam transport (Windows)")
 function(lm_runtime_target tgt)
     target_include_directories(${tgt} PRIVATE src
         ${CMAKE_SOURCE_DIR}/extern/aurora/include/dolphin ${CMAKE_SOURCE_DIR}/extern/aurora/include)
@@ -175,6 +176,13 @@ function(lm_runtime_target tgt)
     target_link_libraries(${tgt} PRIVATE aurora::main aurora::core aurora::gx aurora::vi aurora::pad
         aurora::si aurora::os aurora::dvd aurora::card
         LibDataChannel::LibDataChannelStatic nlohmann_json::nlohmann_json)
+    if (LM_STEAM_SDK_DIR AND WIN32)  # optional Steam transport (src/recomp/online_steam.cpp, docs/ONLINE_STEAM.md)
+        target_include_directories(${tgt} PRIVATE ${LM_STEAM_SDK_DIR}/public)
+        target_compile_definitions(${tgt} PRIVATE LM_STEAM=1)
+        target_link_libraries(${tgt} PRIVATE ${LM_STEAM_SDK_DIR}/redistributable_bin/win64/steam_api64.lib)
+        add_custom_command(TARGET ${tgt} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LM_STEAM_SDK_DIR}/redistributable_bin/win64/steam_api64.dll $<TARGET_FILE_DIR:${tgt}>)
+    endif ()
     # Shipped shader/pipeline precache list (tools/pipelines/sweep.py; docs/RENDERING.md).
     add_custom_command(TARGET ${tgt} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/data/pipelines.bin $<TARGET_FILE_DIR:${tgt}>)
@@ -285,6 +293,9 @@ if (WIN32)
     install(PROGRAMS $<TARGET_FILE:LuigisMansionRecomp> DESTINATION . RENAME LuigisMansionRecomp.exe)
 endif ()
 install(FILES NOTICE.md DESTINATION .)
+if (LM_STEAM_SDK_DIR AND WIN32)
+    install(FILES ${LM_STEAM_SDK_DIR}/redistributable_bin/win64/steam_api64.dll DESTINATION .)
+endif ()
 install(DIRECTORY packaging/licenses/ DESTINATION licenses)
 install(FILES data/pipelines.bin DESTINATION .)
 install(FILES packaging/LLVM-LICENSE.TXT DESTINATION llvm)

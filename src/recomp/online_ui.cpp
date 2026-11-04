@@ -5,6 +5,7 @@
 #include "recomp/online.h"
 #include "recomp/online_config.h"
 #include "recomp/online_lobby.h"
+#include "recomp/online_transport.h"
 
 #include "port/update.h"
 
@@ -40,7 +41,7 @@ void nameField(Config& c, bool& dirty) {
 }
 
 void serverNotice(const Config& c) {
-    if (c.signalUrl.empty()) {
+    if (c.signalUrl.empty() && !c.steam) {
         ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1), "No matchmaking server set. Open Settings and enter one (docs/ONLINE_SERVER.md).");
         if (ImGui::Button("Open Settings")) go(Page::Settings);
     }
@@ -106,7 +107,7 @@ MenuResult drawMultiplayerMenu(float scale) {
         dirty |= ImGui::Checkbox("Public (listed in Browse Lobbies)", &c.publicLobby);
         dirty |= field("Password (optional)", c.password, 40, true);
         ImGui::TextDisabled("Private lobbies are joined with the invite code shown in the lobby.");
-        ImGui::BeginDisabled(c.signalUrl.empty() || c.lobbyName.empty());
+        ImGui::BeginDisabled((c.signalUrl.empty() && !c.steam) || c.lobbyName.empty());
         if (ImGui::Button("Create lobby", ImVec2(160 * scale, 36 * scale))) {
             startInternet(c, Mode::Host);
             result = MenuResult::Start;
@@ -122,10 +123,10 @@ MenuResult drawMultiplayerMenu(float scale) {
         serverNotice(c);
         nameField(c, dirty);
         dirty |= field("Password (if needed)", c.password, 40, true);
-        const bool haveServer = !c.signalUrl.empty();
-        const LobbyList list = lobbyList();
+        const bool haveServer = c.steam || !c.signalUrl.empty();
+        const LobbyList list = c.steam ? steamLobbyList() : lobbyList();
         const bool pressed = ImGui::Button("Refresh");
-        if ((entered || pressed) && haveServer) refreshLobbies(c.signalUrl);
+        if ((entered || pressed) && haveServer) c.steam ? steamRefreshLobbies() : refreshLobbies(c.signalUrl);
         ImGui::SameLine();
         ImGui::TextDisabled("%s", list.busy ? "refreshing..." : !list.error.empty() ? list.error.c_str() : list.loaded ? "" : "not loaded yet");
         const std::string mine = port::update::buildVersion();
@@ -173,7 +174,7 @@ MenuResult drawMultiplayerMenu(float scale) {
             c.inviteCode = code, dirty = true;
         }
         dirty |= field("Password (if needed)", c.password, 40, true);
-        ImGui::BeginDisabled(c.signalUrl.empty() || c.inviteCode.size() < 6);
+        ImGui::BeginDisabled((c.signalUrl.empty() && !c.steam) || c.inviteCode.size() < 6);
         if (ImGui::Button("Join", ImVec2(160 * scale, 36 * scale))) {
             c.lobbyId.clear();
             startInternet(c, Mode::Join);
@@ -204,6 +205,10 @@ MenuResult drawMultiplayerMenu(float scale) {
 
     case Page::Settings: {
         nameField(c, dirty);
+        if (steamAvailable()) {
+            dirty |= ImGui::Checkbox("Use Steam instead of a matchmaking server", &c.steam);
+            ImGui::TextDisabled("Steam must be running. Lobbies and the relay come from Steam; nobody has to host a server.");
+        }
         dirty |= field("Matchmaking server", c.signalUrl, 200, false, 380.0f);
         ImGui::TextDisabled("ws://host:8787 for a test server, wss://your.domain for a real one. Nobody hosts one for you: docs/ONLINE_SERVER.md.");
         dirty |= field("STUN / TURN servers", c.iceServers, 400, false, 380.0f);

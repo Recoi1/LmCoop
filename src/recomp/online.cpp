@@ -68,6 +68,7 @@ void loadKey(const std::string& section, const std::string& key, const std::stri
     std::lock_guard lk(sCfgM);
     if (key == "mode") sCfg.mode = value == "host" ? Mode::Host : value == "join" ? Mode::Join : Mode::Off;
     else if (key == "net") sCfg.internet = value == "internet";
+    else if (key == "steam") sCfg.steam = value == "1";
     else if (key == "address") sCfg.address = value;
     else if (key == "port") sCfg.port = std::atoi(value.c_str());
     else if (key == "password") sCfg.password = value;
@@ -83,7 +84,7 @@ void saveConfig(std::ostream& out) {
     std::lock_guard lk(sCfgM);
     out << "[online]\nmode=" << (sCfg.mode == Mode::Host ? "host" : sCfg.mode == Mode::Join ? "join" : "off")
         << "\nnet=" << (sCfg.internet ? "internet" : "direct")
-        << "\naddress=" << sCfg.address << "\nport=" << sCfg.port << "\npassword=" << sCfg.password
+        << "\nsteam=" << (sCfg.steam ? 1 : 0) << "\naddress=" << sCfg.address << "\nport=" << sCfg.port << "\npassword=" << sCfg.password
         << "\nname=" << sCfg.name << "\nserver=" << sCfg.signalUrl << "\nice=" << sCfg.iceServers
         << "\nlobby_name=" << sCfg.lobbyName << "\npublic=" << (sCfg.publicLobby ? 1 : 0)
         << "\ncode=" << sCfg.inviteCode << "\nlobby_id=" << sCfg.lobbyId << '\n';
@@ -110,7 +111,8 @@ Config config() {
     if (const char* v = std::getenv("LM_ONLINE_NAME")) c.name = std::string(v).substr(0, kNameSize - 1);
     // Internet test aids: LM_ONLINE_NET=internet, LM_ONLINE_SERVER=ws://..., LM_ONLINE_CODE, LM_ONLINE_LOBBY (name),
     // LM_ONLINE_PUBLIC=1, LM_ONLINE_ICE.
-    if (const char* v = std::getenv("LM_ONLINE_NET")) c.internet = !std::strcmp(v, "internet");
+    if (const char* v = std::getenv("LM_ONLINE_NET"))
+        c.internet = !std::strcmp(v, "internet") || !std::strcmp(v, "steam"), c.steam = !std::strcmp(v, "steam");
     if (const char* v = std::getenv("LM_ONLINE_SERVER")) c.signalUrl = v;
     if (const char* v = std::getenv("LM_ONLINE_CODE")) c.inviteCode = v;
     if (const char* v = std::getenv("LM_ONLINE_LOBBY")) c.lobbyName = oneLine(v, 24);
@@ -192,7 +194,7 @@ std::array<u8, 32> passwordHash(const std::string& pw) {
 
 NetConfig netConfig(const Config& c) {
     NetConfig n;
-    n.internet = c.internet, n.host = c.mode == Mode::Host, n.address = c.address, n.port = c.port;
+    n.internet = c.internet, n.steam = c.steam && c.internet, n.host = c.mode == Mode::Host, n.address = c.address, n.port = c.port;
     n.signalUrl = c.signalUrl, n.iceServers = c.iceServers, n.lobbyName = c.lobbyName;
     n.publicLobby = c.publicLobby, n.hasPassword = !c.password.empty();
     n.inviteCode = c.inviteCode, n.lobbyId = c.lobbyId;
@@ -201,7 +203,7 @@ NetConfig netConfig(const Config& c) {
 }
 
 bool openSocket(const Config& c) {
-    sNet = c.internet ? makeRtcTransport(netConfig(c)) : makeUdpTransport(netConfig(c));
+    sNet = !c.internet ? makeUdpTransport(netConfig(c)) : c.steam ? makeSteamTransport(netConfig(c)) : makeRtcTransport(netConfig(c));
     if (const NetStatus s = sNet->status(); s.failed) {
         setStatus(s.text);
         sNet.reset();
@@ -678,7 +680,7 @@ bool readyToStart() {
     std::lock_guard lk(sCfgM);
     if (sCfg.mode == Mode::Off) return false;
     if (sCfg.internet)
-        return !sCfg.signalUrl.empty() && (sCfg.mode == Mode::Host || !sCfg.inviteCode.empty() || !sCfg.lobbyId.empty());
+        return (sCfg.steam || !sCfg.signalUrl.empty()) && (sCfg.mode == Mode::Host || !sCfg.inviteCode.empty() || !sCfg.lobbyId.empty());
     return !sCfg.address.empty() && sCfg.port > 0 && sCfg.port <= 65535;
 }
 

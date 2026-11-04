@@ -4,6 +4,7 @@
 //   Udp:      one raw UDP socket on a LAN / Radmin / loopback address ("Direct Connect").
 //   Internet: a WebRTC data channel (ICE + STUN, optional TURN, DTLS) negotiated through the
 //             matchmaking server in server/ (online_rtc.cpp).
+//   Steam:    Steam lobbies and Steam's relay network, no server of ours (online_steam.cpp, optional).
 // Nothing here knows about the game. All methods are called from the guest thread and must not
 // block; the internet transport keeps its own network threads behind a mutex-protected queue.
 #include "recomp/online_protocol.h"
@@ -20,6 +21,7 @@ using PeerId = std::uint64_t;
 // Everything a transport needs from the user's settings.
 struct NetConfig {
     bool internet = false;          // false: UDP to/from `address:port`
+    bool steam = false;             // with `internet`: Steam lobbies and relay instead of the matchmaking server
     bool host = false;
     std::string address;            // UDP: the address to listen on (host) or the host's address (join)
     int port = 28555;
@@ -57,5 +59,7 @@ public:
 // Never null: on failure the returned transport reports status().failed with the reason.
 std::unique_ptr<Transport> makeUdpTransport(const NetConfig& c);
 std::unique_ptr<Transport> makeRtcTransport(const NetConfig& c);  // online_rtc.cpp
+std::unique_ptr<Transport> makeSteamTransport(const NetConfig& c);  // online_steam.cpp
+bool steamAvailable();  // this build has Steam support (-DLM_STEAM_SDK_DIR)
 
 }  // namespace recomp::online

@@ -21,4 +21,8 @@ struct LobbyList {
 void refreshLobbies(const std::string& signalUrl);  // asks the matchmaking server; returns at once
 LobbyList lobbyList();                               // newest snapshot
 
+// The same for Steam lobbies (online_steam.cpp).
+void steamRefreshLobbies();
+LobbyList steamLobbyList();
+
 }  // namespace recomp::online
