@@ -57,11 +57,13 @@ MenuResult drawMultiplayerMenu(float scale) {
     Config c = savedConfig();
     bool dirty = false;
     MenuResult result = MenuResult::Stay;
-    const ImVec2 big(ImGui::GetWindowWidth() * 0.25f, 44 * scale);
+    // Scrolls when a page is taller than the room under the logo; the menu itself fits at 1080p.
+    ImGui::BeginChild("##multiplayer", ImVec2(0, 0), false);
+    const ImVec2 big(ImGui::GetWindowWidth() * 0.25f, std::min(44 * scale, ImGui::GetWindowHeight() * 0.12f));
     auto bigButton = [&](const char* label) {
         ImGui::SetCursorPosX((ImGui::GetWindowWidth() - big.x) * 0.5f);
         const bool hit = ImGui::Button(label, big);
-        ImGui::Dummy(ImVec2(0, 6 * scale));
+        ImGui::Dummy(ImVec2(0, 2 * scale));
         return hit;
     };
     auto back = [&] {
@@ -72,7 +74,8 @@ MenuResult drawMultiplayerMenu(float scale) {
     };
     // Pages other than the menu are a centered column.
     const float w = ImGui::GetWindowWidth() * 0.6f;
-    if (sPage != Page::Menu) {
+    const bool grouped = sPage != Page::Menu;  // a button below changes sPage: close what was opened
+    if (grouped) {
         ImGui::SetCursorPosX((ImGui::GetWindowWidth() - w) * 0.5f);
         ImGui::BeginGroup();
     }
@@ -85,8 +88,13 @@ MenuResult drawMultiplayerMenu(float scale) {
         if (bigButton("Browse Lobbies")) go(Page::Browse);
         if (bigButton("Join by Code")) go(Page::Code);
         if (bigButton("Direct Connect")) go(Page::Direct);
-        if (bigButton("Settings")) go(Page::Settings);
-        back();
+        {
+            const ImVec2 half((big.x - 8 * scale) * 0.5f, big.y);
+            ImGui::SetCursorPosX((ImGui::GetWindowWidth() - big.x) * 0.5f);
+            if (ImGui::Button("Settings", half)) go(Page::Settings);
+            ImGui::SameLine(0, 8 * scale);
+            if (ImGui::Button("Back", half)) result = MenuResult::Back;
+        }
         break;
 
     case Page::Host: {
@@ -210,7 +218,8 @@ MenuResult drawMultiplayerMenu(float scale) {
     }
     }
 
-    if (sPage != Page::Menu) ImGui::EndGroup();
+    if (grouped) ImGui::EndGroup();
+    ImGui::EndChild();
     if (dirty) setSavedConfig(c);
     if (result == MenuResult::Back || result == MenuResult::Start) go(Page::Menu);
     return result;
