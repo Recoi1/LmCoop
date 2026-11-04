@@ -15,6 +15,7 @@
 #include "port/update.h"
 
 #include "port/install.h"
+#include "port/recovery.h"
 #include "port/settings.h"
 
 #include <algorithm>
@@ -1691,6 +1692,7 @@ void installAndRestart() {
     ulog("installed %zu files; restarting", moved.size());
     port::saveSettings();
     std::fflush(stdout);
+    port::recovery::onExit();  // else the new version reads "starting" and counts this restart as a failed start
     port::relaunch(false, sExePath);
     setPhase(Phase::Failed, "The new version is installed but could not be started; start the game again.");
 }
