@@ -17,8 +17,10 @@ WebRTC one (`src/recomp/online_steam.cpp`). Datagrams, passwords and the game sy
 
 ## Building it
 
-Not part of the default build (the SDK is Valve's and is not in this repository). Download the
-Steamworks SDK, then configure with its `sdk` folder:
+The official Windows releases include it: the build downloads the SDK's headers and `steam_api64.*` from a
+draft release in this repository (collaborators only; `.github/workflows/build.yml`), and without that access
+(forks) it builds without Steam. To build it yourself (the SDK is Valve's and is not in this repository),
+download the Steamworks SDK, then configure with its `sdk` folder:
 
     cmake -DLM_STEAM_SDK_DIR=C:/path/to/steamworks_sdk/sdk build/windows-clang
 

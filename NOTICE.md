@@ -7,6 +7,7 @@
 | `extern/aurora/` | [encounter/aurora](https://github.com/encounter/aurora) (submodule) | MIT |
 | `llvm/bin/clang.exe`, `llvm/bin/lld-link.exe` (release packages only, copied at install time; not in this repository) | [LLVM Project](https://llvm.org) | Apache-2.0 WITH LLVM-exception (`packaging/LLVM-LICENSE.TXT`, installed as `llvm/LLVM-LICENSE.TXT`) |
 | libdatachannel 0.24.6 (fetched and linked statically at build time; internet play) | [paullouisageneau/libdatachannel](https://github.com/paullouisageneau/libdatachannel) with its libjuice, usrsctp and plog submodules | MPL-2.0 (libdatachannel, libjuice), BSD-3-Clause (usrsctp), MIT (plog) |
+| Steamworks SDK 165 `steam_api64.dll` (redistributed in the Windows download; optional Steam play) | [Valve Steamworks](https://partner.steamgames.com/) | Valve's Steamworks SDK terms (the SDK is not in this repository) |
 | MbedTLS 3.6.7 (fetched and linked statically; DTLS for internet play) | [Mbed-TLS/mbedtls](https://github.com/Mbed-TLS/mbedtls) | Apache-2.0 OR GPL-2.0-or-later (used under Apache-2.0) |
 | nlohmann/json 3.11.3 (fetched at build time; matchmaking messages) | [nlohmann/json](https://github.com/nlohmann/json) | MIT |
 | `server/` dependency `ws` (matchmaking server only, installed with npm) | [websockets/ws](https://github.com/websockets/ws) | MIT |
