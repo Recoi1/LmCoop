@@ -11,6 +11,7 @@
 #include "port/settings.h"
 #include "port/update.h"
 #include "recomp/menu.h"
+#include "recomp/characters.h"
 #include "recomp/online.h"
 #include "setup/module_builder.h"
 
@@ -193,7 +194,7 @@ void browse(int slot, const std::string& current) {
                            dir.empty() ? nullptr : dir.c_str(), false);
 }
 
-enum class Screen { Pick, Working, Shaders, Failed, Start, Multiplayer, Settings, Updates };
+enum class Screen { Pick, Working, Shaders, Failed, Start, Single, Multiplayer, Settings, Updates };
 
 }  // namespace
 
@@ -386,7 +387,10 @@ bool run(const Options& opts, LaunchInfo& launch) {
                 return hit;
             };
             if (framesDrawn == 0 || ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-            if (bigButton("Singleplayer")) choose(0);
+            if (bigButton("Singleplayer")) {
+                if (recomp::characters::available().size() > 1) screen = Screen::Single;  // a character pack is installed: pick first
+                else choose(0);
+            }
             if (bigButton("Multiplayer")) screen = Screen::Multiplayer;
             if (bigButton("Settings")) {
                 settingsReturn = Screen::Start;
@@ -399,6 +403,21 @@ bool run(const Options& opts, LaunchInfo& launch) {
                 aurora_end_frame();
                 return false;
             }
+        } else if (screen == Screen::Single) {
+            // Singleplayer lobby: the character, then Start.
+            ImGui::Dummy(ImVec2(0, 8 * scale));
+            centeredText("SINGLEPLAYER");
+            ImGui::Dummy(ImVec2(0, 8 * scale));
+            centeredText("Your character", grey);
+            const float row = 190 * scale * float(recomp::characters::available().size());
+            ImGui::SetCursorPosX(std::max(0.0f, (ImGui::GetWindowWidth() - row) * 0.5f));
+            recomp::characters::drawSelect(scale);
+            ImGui::Dummy(ImVec2(0, 12 * scale));
+            if (centeredButton("Start")) {
+                port::saveSettings();  // remembers the choice
+                choose(0);
+            }
+            if (centeredButton("Back")) screen = Screen::Start;
         } else if (screen == Screen::Multiplayer) {
             using recomp::online::MenuResult;
             switch (recomp::online::drawMultiplayerMenu(scale)) {

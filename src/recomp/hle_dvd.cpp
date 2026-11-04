@@ -3,6 +3,7 @@
 #include "recomp/hidden_mansion.h"
 #include "recomp/room_swap.h"
 #include "recomp/unused_maps.h"
+#include "recomp/characters.h"
 #include "recomp/unused2.h"
 #include "recomp/hle.h"
 #include "recomp/runtime.h"
@@ -39,21 +40,24 @@ s32 ovEntry(const char* path) {
     s32 e = rooms::overlayEntry(path);
     if (e < 0) e = unused2::overlayEntry(path);
     if (e < 0) e = unused_maps::overlayEntry(path);
+    if (e < 0) e = characters::overlayEntry(path);
     return e >= 0 ? e : hm::overlayEntry(path);
 }
 bool ovIs(s32 e) {
-    return rooms::isOverlayEntry(e) || unused2::isOverlayEntry(e) || unused_maps::isOverlayEntry(e) || hm::isOverlayEntry(e);
+    return rooms::isOverlayEntry(e) || unused2::isOverlayEntry(e) || unused_maps::isOverlayEntry(e) || characters::isOverlayEntry(e) || hm::isOverlayEntry(e);
 }
 u32 ovLength(s32 e) {
     if (rooms::isOverlayEntry(e)) return rooms::overlayLength(e);
     if (unused2::isOverlayEntry(e)) return unused2::overlayLength(e);
     if (unused_maps::isOverlayEntry(e)) return unused_maps::overlayLength(e);
+    if (characters::isOverlayEntry(e)) return characters::overlayLength(e);
     return hm::overlayLength(e);
 }
 s32 ovRead(s32 e, void* dst, s32 len, s32 off) {
     if (rooms::isOverlayEntry(e)) return rooms::overlayRead(e, dst, len, off);
     if (unused2::isOverlayEntry(e)) return unused2::overlayRead(e, dst, len, off);
     if (unused_maps::isOverlayEntry(e)) return unused_maps::overlayRead(e, dst, len, off);
+    if (characters::isOverlayEntry(e)) return characters::overlayRead(e, dst, len, off);
     return hm::overlayRead(e, dst, len, off);
 }
 
@@ -118,6 +122,7 @@ HLE(fn_800071D0__18LMDvdFileInfoBlockFP18LMDvdFileInfoBlock) {
     const u32 size = src >= 0x80000000u && src < 0x81800000u ? rd32(src + 4) : 0;
     if (!destOk(dest, size, "Yay0 decompression", c.lr)) return;
     callOriginal(c, "fn_800071D0__18LMDvdFileInfoBlockFP18LMDvdFileInfoBlock");
+    if (size) characters::afterDecompress(dest, size);
 }
 
 HLE(DVDInit) {}

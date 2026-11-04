@@ -5,6 +5,7 @@
 #include "recomp/online.h"
 #include "recomp/online_config.h"
 #include "recomp/online_lobby.h"
+#include "recomp/characters.h"
 #include "recomp/online_room.h"
 #include "recomp/online_transport.h"
 
@@ -248,6 +249,11 @@ MenuResult drawMultiplayerMenu(float scale) {
             };
             slot(hostP, "Luigi (host)");
             slot(guestP, "Mario");
+            if (characters::available().size() > 1) {  // a character pack is installed: each player picks theirs
+                ImGui::Dummy(ImVec2(0, 4 * scale));
+                ImGui::TextDisabled("Your character");
+                characters::drawSelect(scale);
+            }
             ImGui::Dummy(ImVec2(0, 8 * scale));
             if (st.host) {
                 if (ImGui::Button("Start the game", ImVec2(200 * scale, 36 * scale))) room::start();
