@@ -37,8 +37,10 @@ folders are kept. The saved copy on the player's PC is the raw log; scrubbing ha
 
 ## The inbox (what you deploy)
 
-`server/crash-inbox/`: a small Cloudflare Worker that stores each report and opens an issue in a **private** GitHub
-repository. The GitHub token is a Worker secret; the game holds no credential. See `server/crash-inbox/README.md`.
+`server/crash-inbox/`: a small Cloudflare Worker (free plan) that stores each report and, depending on which secrets are set,
+posts it to a private Discord channel (`DISCORD_WEBHOOK`, the log attached, mentions off) and/or opens an issue in a
+**private** GitHub repository (`GITHUB_TOKEN` + `GITHUB_REPO`). Secrets live only in the Worker; the game holds no
+credential. Live now with Discord only. See `server/crash-inbox/README.md`.
 
 The game finds the Worker's address in `data/crash_inbox.json` (read from GitHub when a player presses Send), so the
 inbox can be moved without a release. **Until `url` is filled in, the prompt does not offer to send.**
