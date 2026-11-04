@@ -5,10 +5,10 @@ compatibility_date = "2025-01-01"
 # Create the namespace once (npx wrangler kv namespace create REPORTS) and paste its id here.
 [[kv_namespaces]]
 binding = "REPORTS"
-id = "REPLACE-WITH-THE-NAMESPACE-ID"
+id = "ec200fb5751049a29c2bde28e115ad60"
 
 [vars]
 # A PRIVATE repository whose issues you review; the token below only needs "Issues: read and write" on it.
-GITHUB_REPO = "Recoi1/lmcoop-crash-reports"
+# GITHUB_REPO = "Recoi1/lmcoop-crash-reports"   # enable with GITHUB_TOKEN to also open issues
 
 # Secret (never in this file): npx wrangler secret put GITHUB_TOKEN

@@ -156,3 +156,17 @@ test('two different crashes get two issues', async () => {
   await handle(post(good({ id: '4444444444444444', log: crash({ names: ['b::two'] }) }), '8.8.8.8'), e, f);
   assert.equal(created(calls).length, 2);
 });
+
+test('discord: the report is posted with mentions disabled and the log attached; a Discord outage changes nothing', async () => {
+  const calls = [];
+  const hook = 'https://discord.com/api/webhooks/1/SECRETHOOK';
+  const ok = async (url, init) => { calls.push({ url, init }); return new Response(null, { status: 204 }); };
+  const j = await (await handle(post(good({ description: '@everyone hi' })), { REPORTS: kv(), DISCORD_WEBHOOK: hook }, ok)).json();
+  assert.deepEqual([j.ok, j.discord, calls.length, calls[0].url], [true, true, 1, hook]);
+  const payload = JSON.parse(calls[0].init.body.get('payload_json'));
+  assert.deepEqual(payload.allowed_mentions, { parse: [] });
+  assert.ok(calls[0].init.body.get('files[0]'));
+  const down = async () => { throw new Error('discord down'); };
+  const j2 = await (await handle(post(good({ id: 'b1b2c3d4e5f60718' })), { REPORTS: kv(), DISCORD_WEBHOOK: hook }, down)).json();
+  assert.deepEqual([j2.ok, j2.discord], [true, false]);
+});

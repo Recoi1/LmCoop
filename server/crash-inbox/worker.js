@@ -199,8 +199,36 @@ export async function handle(request, env, fetchFn = fetch) {
       // the report is stored; the issue can be made from it later
     }
   }
+  // Optional: a private Discord channel gets the report too (the webhook URL is a Worker secret, never in the game).
+  let discord = false;
+  if (env.DISCORD_WEBHOOK) {
+    try {
+      const cut = (t, n) => (t.length > n ? t.slice(0, n - 1) + '…' : t);
+      const form = new FormData();
+      form.append('payload_json', JSON.stringify({
+        allowed_mentions: { parse: [] },
+        embeds: [{
+          title: cut(`Crash #${seq} ${code} (${r.version})`, 250),
+          description: cut(`${frames[0] || faultAt || r.reason || 'crash'}
+sig-${sig}`, 1000),
+          color: 0xe74c3c,
+          fields: [
+            { name: 'Build', value: cut(`${r.build}`, 200) || '-', inline: true },
+            { name: 'Session', value: cut(`${r.mode}, ${r.net}`, 200), inline: true },
+            { name: 'GPU', value: cut(`${r.gpu}` || '-', 200) },
+            { name: 'Mods', value: cut(r.mods.map((m) => m.name).join(', ') || 'none', 500) },
+            { name: 'Player note', value: cut(r.description || 'none', 800) },
+          ],
+        }],
+      }));
+      form.append('files[0]', new Blob([r.log.slice(-ISSUE_LOG)], { type: 'text/plain' }), `crash-${seq}.log`);
+      discord = (await fetchFn(env.DISCORD_WEBHOOK, { method: 'POST', body: form })).ok;
+    } catch {
+      // stored anyway
+    }
+  }
   await env.REPORTS.put(`id:${r.id}`, String(number), { expirationTtl: KEEP_SECONDS });
-  return json({ ok: true, number, issue, duplicate });
+  return json({ ok: true, number, issue, duplicate, discord });
 }
 
 export default { fetch: (request, env) => handle(request, env) };

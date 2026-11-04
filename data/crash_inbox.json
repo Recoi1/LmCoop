@@ -1,4 +1,4 @@
 {
-  "about": "Where the game sends crash reports (server/crash-inbox). Empty until the inbox is deployed; the game reads this file from GitHub when a player presses Send crash report.",
-  "url": ""
+  "about": "Where the game sends crash reports (server/crash-inbox). The game reads this file from GitHub when a player presses Send crash report.",
+  "url": "https://lmcoop-crash-inbox.lmcoop-crash-inbox.workers.dev/report"
 }
