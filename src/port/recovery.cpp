@@ -1,6 +1,7 @@
 // Start-up recovery and the run log (recovery.h; docs/SETUP.md "When the game does not start").
 #include "port/recovery.h"
 
+#include "port/crash_report.h"
 #include "port/install.h"
 #include "port/settings.h"
 #include "port/update.h"
@@ -40,6 +41,7 @@ struct RunState {
     std::string phase;  // startup | play
     std::string reason;
     std::string version;
+    std::string build;  // the git commit of the build that wrote this
     int failedStarts = 0;  // failed starts in a row before this run
     int crashesInRow = 0;  // crashed runs in a row before this run
 };
@@ -87,6 +89,7 @@ RunState readState() {
         else if (key == "phase") r.phase = value;
         else if (key == "reason") r.reason = value;
         else if (key == "version") r.version = value;
+        else if (key == "build") r.build = value;
         else if (key == "failed_starts") r.failedStarts = std::atoi(value.c_str());
         else if (key == "crashes_in_row") r.crashesInRow = std::atoi(value.c_str());
     }
@@ -99,9 +102,9 @@ void writeState(const RunState& r) {
     char buf[1024];
     const int n = std::snprintf(buf, sizeof(buf),
                                 "; How the last run of Luigi's Mansion Recompiled ended (start-up recovery, docs/SETUP.md)\n"
-                                "state=%s\nphase=%s\nreason=%s\nversion=%s\nfailed_starts=%d\ncrashes_in_row=%d\n",
-                                r.state.c_str(), r.phase.c_str(), r.reason.c_str(), r.version.c_str(), r.failedStarts,
-                                r.crashesInRow);
+                                "state=%s\nphase=%s\nreason=%s\nversion=%s\nbuild=%s\nfailed_starts=%d\ncrashes_in_row=%d\n",
+                                r.state.c_str(), r.phase.c_str(), r.reason.c_str(), r.version.c_str(), r.build.c_str(),
+                                r.failedStarts, r.crashesInRow);
     if (std::FILE* f = std::fopen(sStatePath, "wb")) {
         std::fwrite(buf, 1, n > 0 ? std::min<size_t>(size_t(n), sizeof(buf) - 1) : 0, f);
         std::fclose(f);
@@ -177,29 +180,79 @@ void putSavesAside() {
     }
 }
 
+int askOnce(const RunState& prev, bool canRebuild, const std::string& sentNote);
+
+// Sends every saved, unsent crash report (the newest carries the description). Returns the text to show.
+std::string sendReports(const std::string& description) {
+    const auto reports = crash::pending();
+    if (reports.empty()) return "There is no saved crash report to send.";
+    int sent = 0;
+    std::string numbers, firstError;
+    for (size_t i = 0; i < reports.size(); i++) {
+        const crash::Outcome o = crash::send(reports[i], i == 0 ? description : std::string());
+        if (o.ok) sent++, numbers += (numbers.empty() ? "#" : ", #") + std::to_string(o.number);
+        else if (firstError.empty()) firstError = o.error;
+    }
+    if (size_t(sent) == reports.size()) return sent == 1 ? "Report sent. Report number: " + numbers : std::to_string(sent) + " reports sent. Report numbers: " + numbers;
+    if (sent > 0) return std::to_string(sent) + " of " + std::to_string(reports.size()) + " reports sent (" + numbers + "). The rest could not be sent: " + firstError + ". They are saved and can be sent from this screen the next time.";
+    return "Could not send the report: " + firstError + ".\n\nIt is saved on this PC and can be sent from this screen the next time LmCoop crashes.";
+}
+
 int ask(const RunState& prev, bool canRebuild) {
+    // Test aid LM_CRASH_AUTO=send: sends the saved reports without any window (LM_CRASH_DESC = the description).
+    if (const char* a = std::getenv("LM_CRASH_AUTO"); a && !std::strcmp(a, "send") && prev.state == "crashed") {
+        const char* d = std::getenv("LM_CRASH_DESC");
+        say("[crash] " + sendReports(d ? d : ""));
+        return 0;
+    }
+    std::string sentNote;  // after a send: what the prompt shows at the top
+    for (;;) {
+        const int c = askOnce(prev, canRebuild, sentNote);
+        if (c != 4) return c;
+        const std::string why = crash::unavailableReason();
+        if (!why.empty()) {
+            sentNote = "Could not send a crash report: " + why + ".";
+            continue;
+        }
+        std::string description;
+        if (!crash::askDescription(description)) continue;  // cancelled: back to the prompt
+        sentNote = sendReports(description);
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "LmCoop crash report", sentNote.c_str(), nullptr);
+    }
+}
+
+int askOnce(const RunState& prev, bool canRebuild, const std::string& sentNote) {
     // Test aid LM_RECOVERY=<0 start normally | 1 reset settings | 2 rebuild game data | 3 saves aside>:
     // answers the prompt (automated runs never show it).
     if (const char* e = std::getenv("LM_RECOVERY")) return std::atoi(e);
     if (std::getenv("LM_BACKGROUND")) return 0;
-    std::string text = prev.state != "crashed" ? "The last starts of LmCoop did not finish"
-                       : prev.phase == "startup" ? "The last start of LmCoop stopped with an error"
-                                                 : "LmCoop stopped with an error last time";
-    if (!prev.reason.empty()) text += ":\n\n" + prev.reason;
-    text += "\n\nUsually starting normally is fine. If the game does not start or the error keeps coming "
-            "back, one of these may help:\n\n"
-            "Reset settings: all options back to their defaults (your settings.ini is kept as a .bak copy).\n";
-    if (canRebuild)
-        text += "Rebuild game data: recompile the game from your disc and rebuild the shader caches "
-                "(takes a minute or two).\n";
-    text += "Put saves aside: start without your memory card saves (they are moved to a \"(put aside)\" "
-            "folder next to them, not deleted).\n\n"
-            "last_run.log and previous_run.log in " +
-            u8(configDir()) + " have the details for a bug report.";
+    const bool canSend = prev.state == "crashed" && !crash::pending().empty() && !crash::notSetUp();
+    std::string text;
+    if (!sentNote.empty()) text = sentNote + "\n\n";
+    if (canSend) {
+        text += "LmCoop crashed last time. Send a crash report to Recoi1?\n\n";
+        if (!prev.reason.empty()) text += "Error: " + prev.reason + "\n\n";
+        text += "The report has the crash log, your Windows and graphics card, whether you were hosting or joining, "
+                "your mods and an optional note. Passwords, addresses, personal folders and saves are never sent.\n\n"
+                "If the game will not start, Reset settings";
+        text += canRebuild ? ", Rebuild data" : "";
+        text += " or Put saves aside may help. Nothing is deleted: your settings and saves are kept as backups.";
+    } else {
+        text += prev.state != "crashed" ? "The last starts of LmCoop did not finish"
+                : prev.phase == "startup" ? "The last start of LmCoop stopped with an error"
+                                          : "LmCoop stopped with an error last time";
+        if (!prev.reason.empty()) text += ":\n\n" + prev.reason;
+        text += "\n\nUsually starting normally is fine. If the game will not start or the error keeps coming back:\n\n"
+                "Reset settings: all options back to the defaults (settings.ini is kept as a .bak copy).\n";
+        if (canRebuild) text += "Rebuild data: recompile the game from your disc and rebuild the shader caches (a minute or two).\n";
+        text += "Put saves aside: start without your saves (they are moved aside, not deleted).\n\n"
+                "Details for a bug report: last_run.log and previous_run.log in " + u8(configDir());
+    }
     std::vector<SDL_MessageBoxButtonData> buttons;
+    if (canSend) buttons.push_back({0, 4, "Send report"});
     buttons.push_back({SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Start normally"});
     buttons.push_back({0, 1, "Reset settings"});
-    if (canRebuild) buttons.push_back({0, 2, "Rebuild game data"});
+    if (canRebuild) buttons.push_back({0, 2, "Rebuild data"});
     buttons.push_back({0, 3, "Put saves aside"});
     SDL_MessageBoxData box{};
     box.flags = SDL_MESSAGEBOX_WARNING | SDL_MESSAGEBOX_BUTTONS_LEFT_TO_RIGHT;
@@ -224,6 +277,7 @@ void onStart(bool canRebuild) {
     sCur.state = "starting";
     sCur.phase = "startup";
     sCur.version = update::buildVersion();
+    sCur.build = crash::buildId();
     sCur.failedStarts = prevFailedStart ? prev.failedStarts + 1 : 0;
     sCur.crashesInRow = prev.state == "crashed" ? prev.crashesInRow + 1 : 0;
     if (!prev.state.empty() && prev.state != "exited")
@@ -236,6 +290,9 @@ void onStart(bool canRebuild) {
     // Offered after any crash (start-up or play: issue #17's player could not start again after a
     // fatal error in play) and after two starts in a row that never got going (killed or hung).
     const bool offer = prev.state == "crashed" || sCur.failedStarts >= 2 || std::getenv("LM_RECOVERY") != nullptr;
+    // The crashed run's log is previous_run.log now; keep it as its own report before a later start replaces it.
+    if (prev.state == "crashed") crash::preserve(prev.reason, prev.version, prev.build);
+    crash::writeSession();  // this run's facts (after the previous run's were kept)
     writeState(sCur);  // before the prompt: a start that dies in it still counts
     sStarted = true;
     if (!offer) return;
@@ -256,12 +313,15 @@ void onStart(bool canRebuild) {
 }
 
 void markRunning() {
-    std::lock_guard lock{sHangMutex};
-    if (!sStarted || sCur.state != "starting") return;
-    sCur.state = "running";
-    sCur.phase = "play";
-    sCur.failedStarts = 0;
-    writeState(sCur);
+    {
+        std::lock_guard lock{sHangMutex};
+        if (!sStarted || sCur.state != "starting") return;
+        sCur.state = "running";
+        sCur.phase = "play";
+        sCur.failedStarts = 0;
+        writeState(sCur);
+    }
+    crash::writeSession();  // the session mode (hosting or joining) is known by now
 }
 
 void onExit() {

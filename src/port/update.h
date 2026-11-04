@@ -102,4 +102,7 @@ bool downloadFile(const std::string& url, const std::filesystem::path& dest, con
                   std::atomic<std::uint64_t>& got, const std::atomic<bool>& cancel, std::string& error);
 std::string extractArchive(const std::filesystem::path& archive, const std::filesystem::path& dest);
 
+// One JSON POST for the crash report: the response body and HTTP status, or false with `error`.
+bool postJson(const std::string& url, const std::string& body, std::string& response, int& status, std::string& error);
+
 }  // namespace port::update

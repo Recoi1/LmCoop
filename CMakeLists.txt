@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(lmport LANGUAGES C CXX VERSION 1.6.0)
+project(lmport LANGUAGES C CXX VERSION 1.7.0)
 if (WIN32)
     enable_language(RC)  # the exe icon (packaging/windows/lmcoop.rc)
 endif ()
@@ -162,17 +162,23 @@ target_link_libraries(lmrecompile PRIVATE lm_recompiler)
 file(GLOB RECOMP_RUNTIME_SOURCES CONFIGURE_DEPENDS src/recomp/*.cpp)
 list(REMOVE_ITEM RECOMP_RUNTIME_SOURCES ${CMAKE_SOURCE_DIR}/src/recomp/module_rt.cpp)
 list(APPEND RECOMP_RUNTIME_SOURCES src/port/crash_handler.cpp src/port/options.cpp src/port/dol.cpp
-    src/port/settings.cpp src/port/install.cpp src/port/update.cpp src/port/recovery.cpp)
+    src/port/settings.cpp src/port/install.cpp src/port/update.cpp src/port/recovery.cpp src/port/crash_report.cpp)
 # The program's version (F1 > Game, the updater's comparison with the latest GitHub release, the
 # game module's cache key; docs/SETUP.md "Updates"). Only this file sees it, so a version bump
 # rebuilds one file.
 set_source_files_properties(src/port/update.cpp PROPERTIES COMPILE_DEFINITIONS "LM_VERSION=\"${PROJECT_VERSION}\"")
 
+# The commit this build comes from, for crash reports (src/port/crash_report.cpp).
+execute_process(COMMAND git rev-parse --short=10 HEAD WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE LM_GIT_SHA OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
 set(LM_STEAM_SDK_DIR "" CACHE PATH "Steamworks SDK 'sdk' folder: builds the optional Steam transport (Windows)")
 function(lm_runtime_target tgt)
     target_include_directories(${tgt} PRIVATE src
         ${CMAKE_SOURCE_DIR}/extern/aurora/include/dolphin ${CMAKE_SOURCE_DIR}/extern/aurora/include)
     target_compile_definitions(${tgt} PRIVATE TARGET_PC=1)
+    if (LM_GIT_SHA)
+        target_compile_definitions(${tgt} PRIVATE "LM_GIT_SHA=\"${LM_GIT_SHA}\"")
+    endif ()
     target_link_libraries(${tgt} PRIVATE aurora::main aurora::core aurora::gx aurora::vi aurora::pad
         aurora::si aurora::os aurora::dvd aurora::card
         LibDataChannel::LibDataChannelStatic nlohmann_json::nlohmann_json)

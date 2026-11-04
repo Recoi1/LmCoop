@@ -31,6 +31,7 @@
 #include "recomp/module_loader.h"
 #include "recomp/online.h"
 #include "recomp/precache.h"
+#include "port/crash_report.h"
 #include "recomp/texture_packs.h"
 #include "recomp/runtime.h"
 #include "recomp/sched.h"
@@ -50,6 +51,7 @@
 
 namespace recomp {
 u32 copyDispCount();  // hle_gx.cpp
+std::string sessionInfo();  // session_info.cpp
 #ifdef __APPLE__
 void hideWindowMacos(SDL_Window* w);  // macos_window.cpp
 #endif
@@ -223,6 +225,7 @@ int main(int argc, char* argv[]) {
     port::dataLocation();
     // Windows: last_run.log (recovery.h), in the folder dataLocation just chose (portable or system).
     port::recovery::openRunLog();
+    port::crash::setSessionProvider(&recomp::sessionInfo);  // what a crash report says about this run
 
     AuroraConfig config{};
     config.appName = "Luigi's Mansion Recompiled";

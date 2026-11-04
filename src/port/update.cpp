@@ -1882,4 +1882,63 @@ std::string extractArchive(const fs::path& archive, const fs::path& dest) {
     return {};
 }
 
+// One JSON POST (the crash report): https, or plain http to this machine for testing. Windows only so far.
+bool postJson(const std::string& url, const std::string& body, std::string& response, int& status, std::string& error) {
+    Url u;
+    if (!parseUrl(url, u)) {
+        error = "bad address";
+        return false;
+    }
+    const bool local = u.host == "localhost" || u.host == "127.0.0.1";
+    if (!(u.scheme == "https" || (u.scheme == "http" && local))) {
+        error = "refused: reports are only sent over https";
+        return false;
+    }
+#ifdef _WIN32
+    status = 0;
+    response.clear();
+    HINTERNET s = WinHttpOpen(widen(userAgent()).c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
+                              WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!s) s = WinHttpOpen(widen(userAgent()).c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!s) {
+        error = winHttpError(GetLastError());
+        return false;
+    }
+    WinHttpSetTimeouts(s, 10000, 10000, 30000, 30000);
+    HINTERNET c = WinHttpConnect(s, widen(u.host).c_str(), INTERNET_PORT(u.port), 0);
+    HINTERNET q = c ? WinHttpOpenRequest(c, L"POST", widen(u.path).c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                         u.scheme == "https" ? WINHTTP_FLAG_SECURE : 0)
+                    : nullptr;
+    bool ok = q != nullptr;
+    if (ok) {
+        DWORD policy = WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
+        WinHttpSetOption(q, WINHTTP_OPTION_REDIRECT_POLICY, &policy, sizeof(policy));
+        const std::wstring headers = L"Content-Type: application/json\r\nAccept: application/json";
+        ok = WinHttpSendRequest(q, headers.c_str(), DWORD(-1), const_cast<char*>(body.data()), DWORD(body.size()), DWORD(body.size()), 0) &&
+             WinHttpReceiveResponse(q, nullptr);
+    }
+    if (!ok) error = winHttpError(GetLastError());
+    if (ok) {
+        DWORD code = 0, len = sizeof(code);
+        WinHttpQueryHeaders(q, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &code, &len, WINHTTP_NO_HEADER_INDEX);
+        status = int(code);
+        std::vector<char> buf(16 * 1024);
+        for (;;) {
+            DWORD got = 0;
+            if (!WinHttpReadData(q, buf.data(), DWORD(buf.size()), &got) || got == 0) break;
+            if (response.size() + got > (1u << 20)) break;
+            response.append(buf.data(), got);
+        }
+    }
+    if (q) WinHttpCloseHandle(q);
+    if (c) WinHttpCloseHandle(c);
+    WinHttpCloseHandle(s);
+    return ok;
+#else
+    (void)body, (void)response, (void)status;
+    error = "sending reports is only built for Windows so far";
+    return false;
+#endif
+}
+
 }  // namespace port::update

@@ -173,11 +173,12 @@ void work(int modId, std::string name) {
     std::string body, err;
     if (!port::update::fetchText("https://gamebanana.com/apiv11/Mod/" + std::to_string(modId) + "/ProfilePage", body, err, 2u << 20))
         return fail("could not reach GameBanana (" + err + ")");
-    std::string url, file;
+    std::string url, file, version;
     std::uint64_t size = 0;
     log("[textures] mod %d: GameBanana answered %zu bytes", modId, body.size());
     try {
         const auto doc = nlohmann::json::parse(body);
+        version = doc.value("_sVersion", "");
         for (const auto& f : doc.at("_aFiles")) {
             const std::string n = f.value("_sFile", "");
             log("[textures]   file %s", n.c_str());
@@ -238,7 +239,7 @@ void work(int modId, std::string name) {
         return fail("this archive holds neither Dolphin-style textures (tex1_*.png / .dds) nor a files/ folder of game files: LmCoop cannot use it");
     }
     std::ofstream(dir / "pack.ini") << "name=" << name << "\ngamebanana=" << modId << "\ntextures=" << n << "\nfiles="
-                                    << (filesRoot.empty() ? std::string() : fs::relative(filesRoot, dir, ec).generic_string()) << "\nfilecount=" << nf << "\n";
+                                    << (filesRoot.empty() ? std::string() : fs::relative(filesRoot, dir, ec).generic_string()) << "\nfilecount=" << nf << "\nversion=" << version << "\n";
     {
         std::lock_guard lk(sM);
         sEnabled.insert(id);
@@ -264,6 +265,7 @@ std::vector<Info> installed() {
         for (std::string line; std::getline(in, line);)
             if (line.rfind("textures=", 0) == 0) i.textures = std::atoi(line.c_str() + 9);
             else if (line.rfind("filecount=", 0) == 0) i.files = std::atoi(line.c_str() + 10);
+            else if (line.rfind("version=", 0) == 0) i.version = line.substr(8);
         v.push_back(std::move(i));
     }
     return v;

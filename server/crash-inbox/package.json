@@ -1,0 +1,10 @@
+{
+  "name": "lmcoop-crash-inbox",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Receives LmCoop crash reports and files them as issues in a private GitHub repository",
+  "scripts": {
+    "test": "node --test inbox.test.js"
+  }
+}

@@ -18,6 +18,7 @@ struct Info {
     bool enabled = false;
     int textures = 0;     // texture replacements found (counted when installed)
     int files = 0;        // loose game files found
+    std::string version;  // the mod's version on GameBanana when installed
 };
 std::vector<Info> installed();
 void setEnabled(const std::string& id, bool on);  // saved with the settings; applied at once
