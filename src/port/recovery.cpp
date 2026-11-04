@@ -416,7 +416,12 @@ void openRunLog() {
     std::error_code ec;
     const fs::path dir = configDir();
     const fs::path path = dir / "last_run.log";
-    if (fs::exists(path, ec)) fs::rename(path, dir / "previous_run.log", ec);
+    if (fs::exists(path, ec)) {
+        fs::rename(path, dir / "previous_run.log", ec);
+        // A rename fails while another process still holds the file (the old version after an update restart, or a
+        // crashed run that is still closing). Copy it instead, so the crashed run's log is not lost to the truncation below.
+        if (ec) fs::copy_file(path, dir / "previous_run.log", fs::copy_options::overwrite_existing, ec);
+    }
     sLog = _wfopen(path.wstring().c_str(), L"wb");
     if (!sLog) return;
     const std::string head = "Luigi's Mansion Recompiled " + std::string(update::buildVersion()) + ", started " + stamp();

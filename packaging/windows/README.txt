@@ -1,4 +1,4 @@
-LmCoop 1.7.0 - Windows x64
+LmCoop 1.7.1 - Windows x64
 =========================
 
 Download/source: https://github.com/Recoi1/LmCoop
@@ -13,6 +13,7 @@ REQUIREMENTS AND INSTALLATION
 - Extract the whole ZIP to a writable folder. Keep the DLLs and llvm folder.
 - Run LmCoop.exe. Drag your USA ISO/RVZ onto the setup screen,
   or use Browse. Wait for module compilation and shader preparation.
+- Optional: start the game with LmCoop-Monitor.cmd instead to get a live window that shows warnings, errors and crashes.
 - Choose Singleplayer or Multiplayer at the start menu.
 - Settings on the start screen configures visuals, sound, keyboard/mouse and controllers.
 - The bottom-right corner shows the version and checks for updates automatically.
